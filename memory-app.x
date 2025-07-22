@@ -14,9 +14,6 @@ MEMORY
 __bootloader_state_start = ORIGIN(BOOTLOADER_STATE) - ORIGIN(BOOTLOADER);
 __bootloader_state_end = ORIGIN(BOOTLOADER_STATE) + LENGTH(BOOTLOADER_STATE) - ORIGIN(BOOTLOADER);
 
-__bootloader_active_start = ORIGIN(FLASH) - ORIGIN(BOOTLOADER);
-__bootloader_active_end = ORIGIN(FLASH) + LENGTH(FLASH) - ORIGIN(BOOTLOADER);
-
 /* DFU symbols - for dual-bank, relative to DFU origin (Bank 2) */
 __bootloader_dfu_start = ORIGIN(DFU) - ORIGIN(DFU);
 __bootloader_dfu_end = ORIGIN(DFU) + LENGTH(DFU) - ORIGIN(DFU);

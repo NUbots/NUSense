@@ -1,0 +1,60 @@
+# This file was automatically generated.
+
+[package]
+edition = "2021"
+name = "nusense-rs"
+version = "0.1.0"
+license = "MIT"
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = { version = "0.7.5" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["tick-hz-32_768"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = ["arch-cortex-m", "executor-thread"] }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", features = ["stm32h753vi", "time-driver-any", "exti"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-boot = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-boot-stm32 = { git = "https://github.com/embassy-rs/embassy.git" }
+heapless = { version = "0.8" }
+panic-halt = { version = "1.0.0" }
+panic-probe = { version = "1.0.0", features = ["print-defmt"], optional = true }
+static_cell = { version = "2.1.0" }
+
+defmt = { version = "1.0.1", optional = true }
+defmt-rtt = { version = "1.0.0", optional = true }
+
+[profile.dev]
+debug = true
+lto = true
+opt-level = "z"
+incremental = true
+
+[profile.release]
+debug = false
+lto = true
+opt-level = "z"
+incremental = true
+
+[features]
+default = ["debug"]
+debug = [
+    "defmt",
+    "defmt-rtt",
+    "panic-probe",
+]
+defmt-rtt = ["dep:defmt-rtt"]
+defmt = [
+    "dep:defmt",
+    "embassy-executor/defmt",
+    "embassy-sync/defmt",
+    "embassy-futures/defmt",
+    "embassy-time/defmt",
+    "embassy-time/defmt-timestamp-uptime",
+    "embassy-stm32/defmt",
+    "embassy-usb/defmt",
+    "embassy-boot/defmt",
+    "embassy-boot-stm32/defmt",
+]
+panic-probe = ["dep:panic-probe"]

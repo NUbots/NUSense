@@ -24,27 +24,6 @@
       },
       "consoleLogLevel": "Info",
       "preLaunchTask": "cargo-build-app"
-    },
-    {
-      "type": "probe-rs-debug",
-      "request": "launch",
-      "name": "Debug Bootloader",
-      "chip": "STM32H753VITx",
-      "flashingConfig": {
-        "flashingEnabled": true,
-        "haltAfterReset": true,
-        "formatOptions": {
-          "binaryFormat": "elf"
-        }
-      },
-      "coreConfigs": [
-        {
-          "coreIndex": 0,
-          "programBinary": "${workspaceFolder}/target/thumbv7em-none-eabi/debug/boot"
-        }
-      ],
-      "consoleLogLevel": "Info",
-      "preLaunchTask": "cargo-build-bootloader"
     }
   ]
 }

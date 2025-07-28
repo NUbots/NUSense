@@ -13,8 +13,6 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = [
 embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = ["arch-cortex-m", "executor-thread"] }
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", features = ["stm32h753vi", "time-driver-any", "exti"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-boot = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-boot-stm32 = { git = "https://github.com/embassy-rs/embassy.git" }
 heapless = { version = "0.8" }
 panic-halt = { version = "1.0.0" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"], optional = true }
@@ -52,7 +50,5 @@ defmt = [
     "embassy-time/defmt-timestamp-uptime",
     "embassy-stm32/defmt",
     "embassy-usb/defmt",
-    "embassy-boot/defmt",
-    "embassy-boot-stm32/defmt",
 ]
 panic-probe = ["dep:panic-probe"]

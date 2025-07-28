@@ -8,14 +8,6 @@
       "args": ["build", "--bin", "nusense-rs"],
       "group": "build",
       "problemMatcher": ["$rustc"]
-    },
-    {
-      "label": "cargo-build-bootloader",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["build", "--bin", "boot"],
-      "group": "build",
-      "problemMatcher": ["$rustc"]
     }
   ]
 }

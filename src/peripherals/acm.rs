@@ -1,74 +1,121 @@
-use defmt::*;
-use embassy_stm32::usb::Driver;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
-use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
+//! CDC ACM (virtual serial port) implementation for packet-based communication.
+//!
+//! Provides low-latency USB communication using the STM32H753's hardware DMA
+//! for efficient robotics applications.
 
-/// ACM state wrapper that abstracts away the Embassy USB CDC ACM State type
-/// This hides the specific state implementation details from main
+use defmt::info;
+use embassy_stm32::{peripherals::USB_OTG_HS, usb::Driver};
+use embassy_usb::{
+    class::cdc_acm::{CdcAcmClass, State},
+    driver::EndpointError,
+    Builder,
+};
+
+// Import MAX_PACKET_SIZE from USB system
+use super::usb_system::MAX_PACKET_SIZE;
+
+/// Wrapper around Embassy's CDC ACM state.
 pub struct AcmState<'d> {
     state: State<'d>,
 }
 
 impl<'d> AcmState<'d> {
-    /// Create a new ACM state
-    pub fn new() -> Self {
+    /// Create a new ACM state instance.
+    pub const fn new() -> Self {
         Self { state: State::new() }
     }
 
-    /// Get a mutable reference to the internal state for ACM connection creation
+    /// Get mutable access to the internal state for ACM connection creation.
     pub fn state_mut(&mut self) -> &mut State<'d> {
         &mut self.state
     }
 }
 
-pub struct Disconnected {}
+impl<'d> Default for AcmState<'d> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Error indicating USB connection was disconnected.
+#[derive(Debug, Clone, Copy)]
+pub struct Disconnected;
 
 impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
-            EndpointError::BufferOverflow => core::panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
+    fn from(error: EndpointError) -> Self {
+        match error {
+            EndpointError::BufferOverflow => panic!("USB buffer overflow"),
+            EndpointError::Disabled => Disconnected,
         }
     }
 }
 
-/// CDC ACM (Communications Device Class - Abstract Control Model) connection
+/// CDC ACM connection for packet-based USB communication.
 ///
-/// This peripheral provides a USB serial interface that appears as a virtual
-/// serial port on the host computer. It handles the low-level USB communication
-/// and provides simple read/write methods for applications to use.
+/// Provides send/receive of individual USB packets up to MAX_PACKET_SIZE bytes.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let mut acm = AcmConnection::new(usb_builder, &mut acm_state);
+/// acm.wait_connection().await;
+///
+/// // Send a packet
+/// acm.send_packet(b"Hello").await?;
+///
+/// // Receive a packet
+/// let mut buffer = [0u8; MAX_PACKET_SIZE as usize];
+/// let len = acm.receive_packet(&mut buffer).await?;
+/// ```
 pub struct AcmConnection<'d> {
-    class: CdcAcmClass<'d, Driver<'d, embassy_stm32::peripherals::USB_OTG_HS>>,
+    class: CdcAcmClass<'d, Driver<'d, USB_OTG_HS>>,
 }
 
 impl<'d> AcmConnection<'d> {
-    /// Create a new ACM connection with external state and builder
-    pub fn new(
-        builder: &mut Builder<'d, Driver<'d, embassy_stm32::peripherals::USB_OTG_HS>>,
-        acm_state: &'d mut AcmState<'d>,
-        max_packet_size: u16,
-    ) -> Self {
+    /// Create a new ACM connection.
+    ///
+    /// # Arguments
+    ///
+    /// * `builder` - USB device builder
+    /// * `acm_state` - ACM state storage
+    pub fn new(builder: &mut Builder<'d, Driver<'d, USB_OTG_HS>>, acm_state: &'d mut AcmState<'d>) -> Self {
+        info!("CDC ACM connection initialized");
         Self {
-            class: CdcAcmClass::new(builder, acm_state.state_mut(), max_packet_size),
+            class: CdcAcmClass::new(builder, acm_state.state_mut(), MAX_PACKET_SIZE),
         }
     }
 
-    /// Wait for the USB host to connect
+    /// Wait for USB host to connect and open the CDC ACM interface.
     pub async fn wait_connection(&mut self) {
         self.class.wait_connection().await;
-        info!("CDC ACM Connected");
+        info!("CDC ACM connection established");
     }
 
-    /// Send data to the USB host
-    pub async fn send_data(&mut self, data: &[u8]) -> Result<(), Disconnected> {
-        self.class.write_packet(data).await.map_err(|e| e.into())
-    }
-
-    /// Receive data from the USB host
+    /// Send a USB packet to the host.
     ///
-    /// Returns the number of bytes received
-    pub async fn receive_data(&mut self, buf: &mut [u8]) -> Result<usize, Disconnected> {
-        self.class.read_packet(buf).await.map_err(|e| e.into())
+    /// # Arguments
+    ///
+    /// * `data` - Packet data to send (should not exceed MAX_PACKET_SIZE)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if sent successfully
+    /// * `Err(Disconnected)` if host disconnected
+    pub async fn send_packet(&mut self, data: &[u8]) -> Result<(), Disconnected> {
+        self.class.write_packet(data).await.map_err(Into::into)
+    }
+
+    /// Receive a USB packet from the host.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - Buffer to store received packet data
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(bytes_received)` - Number of bytes received (0 to MAX_PACKET_SIZE)
+    /// * `Err(Disconnected)` - If host disconnected
+    pub async fn receive_packet(&mut self, buffer: &mut [u8]) -> Result<usize, Disconnected> {
+        self.class.read_packet(buffer).await.map_err(Into::into)
     }
 }

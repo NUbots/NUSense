@@ -1,8 +1,11 @@
 [package]
-edition = "2021"
 name = "nusense-rs"
 version = "0.1.0"
+edition = "2021"
 license = "MIT"
+description = "NUSense embedded platform firmware for robotics applications"
+repository = "https://github.com/NUbots/NUSense"
+authors = ["NUbots"]
 
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
@@ -20,6 +23,10 @@ static_cell = { version = "2.1.0" }
 
 defmt = { version = "1.0.1", optional = true }
 defmt-rtt = { version = "1.0.0", optional = true }
+
+[[bin]]
+name = "nusense-rs"
+path = "src/main.rs"
 
 [profile.dev]
 debug = true

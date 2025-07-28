@@ -1,7 +1,5 @@
 pub mod acm;
-pub mod spi;
 pub mod system;
-pub mod uart;
 pub mod usb_device;
 
 pub use acm::{AcmConnection, AcmState, Disconnected};

@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo-build-app",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build", "--bin", "nusense-rs"],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    }
+  ]
+}

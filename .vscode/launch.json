@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "probe-rs-debug",
+      "request": "launch",
+      "name": "Debug NUSense",
+      "chip": "STM32H753VITx",
+      "flashingConfig": {
+        "flashingEnabled": true,
+        "haltAfterReset": false,
+        "formatOptions": {
+          "binaryFormat": "elf"
+        }
+      },
+      "coreConfigs": [
+        {
+          "coreIndex": 0,
+          "programBinary": "${workspaceFolder}/target/thumbv7em-none-eabi/debug/nusense-rs"
+        }
+      ],
+      "env": {
+        "RUST_LOG": "info"
+      },
+      "consoleLogLevel": "Info",
+      "preLaunchTask": "cargo-build-app"
+    }
+  ]
+}

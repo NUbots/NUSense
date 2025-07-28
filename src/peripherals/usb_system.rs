@@ -123,11 +123,8 @@ impl<'d> UsbSystem<'d> {
         }
 
         // Run the USB device task
-        if let Some(ref mut device) = self.usb_device {
-            device.run().await;
-        } else {
-            panic!("Failed to build USB device");
-        }
+        let device = self.usb_device.as_mut().expect("Failed to build USB device");
+        device.run().await;
     }
 
     /// Create a USB driver for ULPI PHY.

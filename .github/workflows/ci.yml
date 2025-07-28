@@ -98,9 +98,6 @@ jobs:
         if: matrix.features != ''
         run: cargo build --release --features ${{ matrix.features }}
 
-      - name: Build binary
-        run: cargo build --bin nusense-rs --release ${{ matrix.features != '' && format('--features {0}', matrix.features) || '--no-default-features' }}
-
   # Check for common issues
   check:
     name: Cargo Check

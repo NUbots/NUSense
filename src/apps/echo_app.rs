@@ -91,9 +91,6 @@ impl<'d> EchoApp<'d> {
 
             // Run the echo loop until disconnection
             match self.echo_loop().await {
-                Ok(()) => {
-                    info!("Echo loop completed normally");
-                }
                 Err(Disconnected) => {
                     warn!("Echo loop: Connection lost, will reconnect...");
 

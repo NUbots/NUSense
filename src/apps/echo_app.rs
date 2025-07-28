@@ -97,6 +97,10 @@ impl<'d> EchoApp<'d> {
                     // Brief delay before attempting to reconnect
                     Timer::after_millis(RECONNECT_DELAY_MS).await;
                 }
+                Ok(()) => {
+                    // Echo loop completed successfully (should not happen in normal operation)
+                    warn!("Echo loop: Completed unexpectedly");
+                }
             }
         }
     }

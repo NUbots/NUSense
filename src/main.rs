@@ -17,6 +17,9 @@ use embassy_futures::join::join;
 use peripherals::{init_system, AcmConnection, AcmState, UsbBuffers, UsbSystem};
 
 // Import panic handler and defmt RTT for debugging
+#[cfg(not(feature = "debug"))]
+use panic_halt as _;
+#[cfg(feature = "debug")]
 use {defmt_rtt as _, panic_probe as _};
 
 /// Main application entry point

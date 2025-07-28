@@ -30,35 +30,35 @@ pub fn init_system() -> Peripherals {
 
     // Enable high-speed internal oscillator (16 MHz)
     config.rcc.hsi = Some(HSIPrescaler::DIV1);
-    
+
     // Enable low-power internal oscillator for backup
     config.rcc.csi = true;
-    
+
     // Enable HSI48 for USB with automatic synchronization from USB SOF packets
     config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
 
     // Configure PLL1 for maximum system performance (480 MHz)
     // PLL1 = HSI(16MHz) / DIVM1(4) * DIVN1(60) / DIVP1(2) = 480MHz
     config.rcc.pll1 = Some(Pll {
-        source: PllSource::HSI,     // Use internal 16MHz oscillator
-        prediv: PllPreDiv::DIV4,    // DIVM1=4 → 4MHz PLL input
-        mul: PllMul::MUL60,         // DIVN1=60 → 240MHz VCO
-        divp: Some(PllDiv::DIV2),   // DIVP1=2 → 480MHz output
-        divq: None,                 // Q output not used
-        divr: None,                 // R output not used
+        source: PllSource::HSI,   // Use internal 16MHz oscillator
+        prediv: PllPreDiv::DIV4,  // DIVM1=4 → 4MHz PLL input
+        mul: PllMul::MUL60,       // DIVN1=60 → 240MHz VCO
+        divp: Some(PllDiv::DIV2), // DIVP1=2 → 480MHz output
+        divq: None,               // Q output not used
+        divr: None,               // R output not used
     });
-    
+
     // System clock configuration
-    config.rcc.sys = Sysclk::PLL1_P;                        // 480 MHz system clock
-    config.rcc.ahb_pre = AHBPrescaler::DIV2;                // 240 MHz AHB clock
-    config.rcc.apb1_pre = APBPrescaler::DIV2;               // 120 MHz APB1 clock
-    config.rcc.apb2_pre = APBPrescaler::DIV2;               // 120 MHz APB2 clock
-    config.rcc.apb3_pre = APBPrescaler::DIV2;               // 120 MHz APB3 clock
-    config.rcc.apb4_pre = APBPrescaler::DIV2;               // 120 MHz APB4 clock
-    
+    config.rcc.sys = Sysclk::PLL1_P; // 480 MHz system clock
+    config.rcc.ahb_pre = AHBPrescaler::DIV2; // 240 MHz AHB clock
+    config.rcc.apb1_pre = APBPrescaler::DIV2; // 120 MHz APB1 clock
+    config.rcc.apb2_pre = APBPrescaler::DIV2; // 120 MHz APB2 clock
+    config.rcc.apb3_pre = APBPrescaler::DIV2; // 120 MHz APB3 clock
+    config.rcc.apb4_pre = APBPrescaler::DIV2; // 120 MHz APB4 clock
+
     // Maximum voltage scaling for 480MHz operation
     config.rcc.voltage_scale = VoltageScale::Scale0;
-    
+
     // Use HSI48 for USB (provides accurate 48MHz for USB timing)
     config.rcc.mux.usbsel = mux::Usbsel::HSI48;
 

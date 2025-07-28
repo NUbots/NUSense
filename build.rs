@@ -23,13 +23,21 @@ fn main() {
     // `memory.x` is changed.
     println!("cargo:rerun-if-changed=memory.x");
 
+    // Configure defmt log level based on features
+    if env::var("CARGO_FEATURE_DEBUG").is_ok() {
+        // Debug build - enable all log levels
+        println!("cargo:rustc-env=DEFMT_LOG=trace");
+    } else {
+        // Release build - only warnings and errors to minimize size
+        println!("cargo:rustc-env=DEFMT_LOG=off");
+    }
+
     // Set linker flags for all binaries
     println!("cargo:rustc-link-arg-bins=--nmagic");
 
     // Main linker script, uses the memory layout from above
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
 
-    // Only link defmt if the feature is enabled
-    #[cfg(feature = "defmt")]
+    // Link the defmt linker script
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
 }

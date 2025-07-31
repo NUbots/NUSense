@@ -1,0 +1,427 @@
+//! ICM-20689 6-axis IMU driver
+//!
+//! This driver provides low-level interface to the ICM-20689 IMU chip over SPI.
+//! It handles:
+//! - Register-level communication
+//! - FIFO buffer management
+//! - Interrupt handling for data ready
+//! - DMA transfers for high-speed data acquisition
+//! - 1000Hz data rate configuration
+
+use crate::peripherals::spi::ImuSpi;
+use embassy_stm32::{
+    exti::ExtiInput,
+    gpio::Pull,
+    peripherals::{EXTI10, PE10},
+    Peri,
+};
+use embassy_time::{Duration, Timer};
+
+/// Register addresses for the ICM-20689
+#[repr(u8)]
+#[derive(Copy, Clone)]
+enum Register {
+    SmplrtDiv = 0x19,
+    Config = 0x1A,
+    GyroConfig = 0x1B,
+    AccelConfig = 0x1C,
+    AccelConfig2 = 0x1D,
+    FifoEn = 0x23,
+    IntPinCfg = 0x37,
+    IntEnable = 0x38,
+    UserCtrl = 0x6A,
+    PwrMgmt1 = 0x6B,
+    PwrMgmt2 = 0x6C,
+    FifoCount = 0x72,
+    FifoRw = 0x74,
+    WhoAmI = 0x75,
+}
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "debug", derive(defmt::Format))]
+pub enum AccelRange {
+    G2 = 0b00 << 3,
+    G4 = 0b01 << 3,
+    G8 = 0b10 << 3,
+    G16 = 0b11 << 3,
+}
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "debug", derive(defmt::Format))]
+pub enum GyroRange {
+    Dps250 = 0b00 << 3,
+    Dps500 = 0b01 << 3,
+    Dps1000 = 0b10 << 3,
+    Dps2000 = 0b11 << 3,
+}
+
+/// Macro to claim peripherals for Icm20689
+#[macro_export]
+macro_rules! claim_imu {
+    ($peripherals:expr) => {{
+        ($peripherals.PE10.reborrow(), $peripherals.EXTI10.reborrow())
+    }};
+}
+
+/// Raw IMU sensor data from chip registers
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "debug", derive(defmt::Format))]
+pub struct RawImuData {
+    /// Raw accelerometer readings (X, Y, Z)
+    pub accel: [i16; 3],
+    /// Raw gyroscope readings (X, Y, Z)
+    pub gyro: [i16; 3],
+    /// Raw temperature reading
+    pub temperature: i16,
+}
+
+/// Scaled IMU sensor data in physical units
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "debug", derive(defmt::Format))]
+pub struct ScaledImuData {
+    /// Acceleration in m/s² (X, Y, Z)
+    pub accel: [f32; 3],
+    /// Angular velocity in rad/s (X, Y, Z)
+    pub gyro: [f32; 3],
+    /// Temperature in °C
+    pub temperature: f32,
+}
+
+/// IMU configuration for the ICM-20689
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "debug", derive(defmt::Format))]
+pub struct ImuConfig {
+    /// Accelerometer full-scale range
+    pub accel_range: AccelRange,
+    /// Gyroscope full-scale range
+    pub gyro_range: GyroRange,
+}
+
+impl Default for ImuConfig {
+    fn default() -> Self {
+        Self {
+            accel_range: AccelRange::G4,
+            gyro_range: GyroRange::Dps500,
+        }
+    }
+}
+
+/// IMU driver errors
+#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(defmt::Format))]
+pub enum ImuError {
+    /// SPI communication error
+    SpiError,
+    /// Device not found or wrong chip ID
+    DeviceNotFound,
+}
+
+impl From<embassy_stm32::spi::Error> for ImuError {
+    fn from(_: embassy_stm32::spi::Error) -> Self {
+        ImuError::SpiError
+    }
+}
+
+/// ICM-20689 driver for interfacing with the IMU chip
+pub struct Icm20689<'d> {
+    /// SPI interface to the chip (includes chip select)
+    spi: ImuSpi<'d>,
+    /// Interrupt pin from the chip
+    interrupt: ExtiInput<'d>,
+    /// Current chip configuration
+    config: ImuConfig,
+}
+
+impl<'d> Icm20689<'d> {
+    /// Create a new ICM-20689 driver instance
+    ///
+    /// # Arguments
+    /// * `spi` - Configured SPI peripheral for communication (includes chip select)
+    /// * `interrupt_peripherals` - Tuple of (PE10, EXTI10) for interrupt handling
+    pub fn new(spi: ImuSpi<'d>, interrupt_peripherals: (Peri<'d, PE10>, Peri<'d, EXTI10>)) -> Self {
+        let (interrupt_pin, interrupt_line) = interrupt_peripherals;
+
+        Self {
+            spi,
+            interrupt: ExtiInput::new(interrupt_pin, interrupt_line, Pull::None),
+            config: ImuConfig::default(),
+        }
+    }
+
+    /// Wait for interrupt from the IMU chip
+    pub async fn wait_for_interrupt(&mut self) {
+        self.interrupt.wait_for_low().await;
+    }
+
+    /// Read the current FIFO count
+    pub async fn read_fifo_count(&mut self) -> Result<u16, ImuError> {
+        // Read FIFO_COUNT_H and FIFO_COUNT_L in a single burst
+        let mut fifo_count = [0u8; 2];
+        self.spi
+            .read_register_burst(Register::FifoCount as u8, &mut fifo_count)
+            .await?;
+        Ok(u16::from_be_bytes(fifo_count))
+    }
+
+    /// Read a batch of sensor data from FIFO
+    ///
+    /// Each packet contains 14 bytes: 6 bytes accel + 2 bytes temp + 6 bytes gyro
+    pub async fn read_fifo_batch(&mut self, buffer: &mut [u8]) -> Result<usize, ImuError> {
+        // Each packet contains 14 bytes: 6 bytes accel + 2 bytes temp + 6 bytes gyro
+        let fifo_count = self.read_fifo_count().await?;
+        let bytes_to_read = core::cmp::min(buffer.len(), fifo_count as usize);
+
+        if bytes_to_read == 0 {
+            return Ok(0);
+        }
+
+        // Read data from FIFO register using burst read
+        self.read_fifo_data(&mut buffer[..bytes_to_read]).await?;
+        Ok(bytes_to_read)
+    }
+
+    /// Parse raw FIFO data into sensor readings
+    ///
+    /// Each 12-byte packet contains: [accel_x_h, accel_x_l, accel_y_h, accel_y_l,
+    /// accel_z_h, accel_z_l, gyro_x_h, gyro_x_l, gyro_y_h, gyro_y_l, gyro_z_h, gyro_z_l]
+    pub fn parse_fifo_packet(&self, packet: &[u8; 14]) -> RawImuData {
+        // FIFO packet layout: accel_x, accel_y, accel_z, temp, gyro_x, gyro_y, gyro_z (2 bytes each, 14 bytes total)
+        RawImuData {
+            accel: [
+                i16::from_be_bytes([packet[0], packet[1]]), // X
+                i16::from_be_bytes([packet[2], packet[3]]), // Y
+                i16::from_be_bytes([packet[4], packet[5]]), // Z
+            ],
+            temperature: i16::from_be_bytes([packet[6], packet[7]]),
+            gyro: [
+                i16::from_be_bytes([packet[8], packet[9]]),   // X
+                i16::from_be_bytes([packet[10], packet[11]]), // Y
+                i16::from_be_bytes([packet[12], packet[13]]), // Z
+            ],
+        }
+    }
+
+    /// Convert raw sensor data to physical units based on the current configuration.
+    fn scale_data(&self, raw: &RawImuData) -> ScaledImuData {
+        // Accelerometer scaling (LSB per g)
+        let accel_lsb_per_g = match self.config.accel_range {
+            AccelRange::G2 => 16384.0,
+            AccelRange::G4 => 8192.0,
+            AccelRange::G8 => 4096.0,
+            AccelRange::G16 => 2048.0,
+        };
+        let accel_scale = 9.80665 / accel_lsb_per_g;
+
+        // Gyroscope scaling (LSB per deg/s)
+        let gyro_lsb_per_dps = match self.config.gyro_range {
+            GyroRange::Dps250 => 131.0,
+            GyroRange::Dps500 => 65.5,
+            GyroRange::Dps1000 => 32.8,
+            GyroRange::Dps2000 => 16.4,
+        };
+        let gyro_scale = (core::f32::consts::PI / 180.0) / gyro_lsb_per_dps; // to rad/s
+
+        // Temperature scaling (datasheet formula)
+        let temp_c = (raw.temperature as f32) / 333.87 + 21.0;
+
+        ScaledImuData {
+            accel: [
+                raw.accel[0] as f32 * accel_scale,
+                raw.accel[1] as f32 * accel_scale,
+                raw.accel[2] as f32 * accel_scale,
+            ],
+            gyro: [
+                raw.gyro[0] as f32 * gyro_scale,
+                raw.gyro[1] as f32 * gyro_scale,
+                raw.gyro[2] as f32 * gyro_scale,
+            ],
+            temperature: temp_c,
+        }
+    }
+
+    /// Read data from FIFO register using DMA
+    async fn read_fifo_data(&mut self, buffer: &mut [u8]) -> Result<(), ImuError> {
+        self.spi
+            .read_register_burst(Register::FifoRw as u8, buffer)
+            .await
+            .map_err(|_| ImuError::SpiError)
+    }
+
+    /// Initialize the ICM-20689 chip
+    ///
+    /// This function:
+    /// 1. Resets the device
+    /// 2. Verifies chip ID
+    /// 3. Configures power management
+    /// 4. Sets up accelerometer and gyroscope ranges
+    /// 5. Configures FIFO buffer
+    /// 6. Enables interrupts
+    async fn initialize(&mut self) -> Result<(), ImuError> {
+        defmt::info!("Initializing ICM-20689...");
+        defmt::debug!("Config: {:?}", self.config);
+
+        // Reset the device
+        const DEVICE_RESET: u8 = 0b1000_0000;
+        self.spi.write_register(Register::PwrMgmt1 as u8, DEVICE_RESET).await?;
+        Timer::after(Duration::from_millis(100)).await;
+
+        // Verify chip ID
+        const WHO_AM_I_EXPECTED: u8 = 0x98;
+        let chip_id = self.spi.read_register(Register::WhoAmI as u8).await?;
+        if chip_id != WHO_AM_I_EXPECTED {
+            defmt::error!(
+                "Wrong chip ID: expected 0x{:02X}, got 0x{:02X}",
+                WHO_AM_I_EXPECTED,
+                chip_id
+            );
+            return Err(ImuError::DeviceNotFound);
+        }
+
+        // Disable I2C mode
+        const USER_CTRL_I2C_DISABLE: u8 = 0b0001_0000;
+        self.spi
+            .write_register(Register::UserCtrl as u8, USER_CTRL_I2C_DISABLE)
+            .await?;
+
+        // Wake up and select clock source
+        const CLK_SEL_PLL: u8 = 0b0000_0001; // Auto PLL (required for max gyro rate)
+        self.spi.write_register(Register::PwrMgmt1 as u8, CLK_SEL_PLL).await?;
+        Timer::after(Duration::from_millis(10)).await;
+
+        // Enable accelerometer and gyroscope and disable all low power modes
+        self.spi.write_register(Register::PwrMgmt2 as u8, 0b0000_0000).await?;
+
+        // Configure DLPF bandwidth
+        const CONFIG_DLPF_BANDWIDTH: u8 = 0b0000_0001;
+        self.spi
+            .write_register(Register::Config as u8, CONFIG_DLPF_BANDWIDTH)
+            .await?;
+
+        // Configure sample rate divider for 1000Hz
+        // Sample Rate = Internal_Sample_Rate / (1 + SMPLRT_DIV)
+        // For 1000Hz: SMPLRT_DIV = 0 (since internal rate is 1000Hz with DLPF enabled)
+        self.spi.write_register(Register::SmplrtDiv as u8, 0b0000_0000).await?;
+
+        // Configure accelerometer range
+        self.spi
+            .write_register(Register::AccelConfig as u8, self.config.accel_range as u8)
+            .await?;
+        const ACC_CONFIG2_DLPF_BANDWIDTH: u8 = 0b0000_0001;
+        self.spi
+            .write_register(Register::AccelConfig2 as u8, ACC_CONFIG2_DLPF_BANDWIDTH)
+            .await?;
+
+        // Configure gyroscope range
+        self.spi
+            .write_register(Register::GyroConfig as u8, self.config.gyro_range as u8)
+            .await?;
+
+        // Reset FIFO
+        const USER_FIFO_RST: u8 = 0b0000_0100 | USER_CTRL_I2C_DISABLE; // Reset FIFO disable I2C mode
+        self.spi.write_register(Register::UserCtrl as u8, USER_FIFO_RST).await?;
+        Timer::after(Duration::from_millis(1)).await;
+
+        // Enable FIFO for TEMP + GYRO + ACCEL
+        const FIFO_TEMP_GYRO_ACCEL: u8 = 0b1111_1000;
+        self.spi
+            .write_register(Register::FifoEn as u8, FIFO_TEMP_GYRO_ACCEL)
+            .await?;
+
+        // Enable FIFO
+        const USER_FIFO_EN: u8 = 0b0100_0000 | USER_CTRL_I2C_DISABLE; // Enable FIFO disable I2C mode
+        self.spi.write_register(Register::UserCtrl as u8, USER_FIFO_EN).await?;
+
+        // Configure interrupt pin (active low, push-pull, cleared on any read)
+        const INT_PIN_CFG_LATCH_CLR_ANY_READ: u8 = 0b1001_1000;
+        self.spi
+            .write_register(Register::IntPinCfg as u8, INT_PIN_CFG_LATCH_CLR_ANY_READ)
+            .await?;
+
+        // Enable data ready interrupt (bit 0) instead of FIFO overflow
+        const INT_ENABLE_DATA_RDY: u8 = 0b0000_0001;
+        self.spi
+            .write_register(Register::IntEnable as u8, INT_ENABLE_DATA_RDY)
+            .await?;
+
+        defmt::info!("ICM-20689 initialized successfully");
+        Ok(())
+    }
+
+    /// Main IMU task that handles interrupt-driven FIFO reading
+    ///
+    /// This task:
+    /// 1. Initializes the IMU chip
+    /// 2. Waits for interrupts from the IMU (indicating new data in FIFO)
+    /// 3. Reads FIFO data using DMA
+    /// 4. Logs statistics every second (data rate and latest readings)
+    pub async fn run(&mut self) -> ! {
+        defmt::info!("Starting IMU task - initializing ICM-20689...");
+
+        // Initialize the IMU chip first
+        if let Err(e) = self.initialize().await {
+            defmt::error!("Failed to initialize IMU: {:?}", e);
+            panic!("IMU initialization failed");
+        }
+
+        defmt::info!("IMU initialized successfully, starting 1000Hz data acquisition...");
+
+        let mut sample_count = 0u32;
+        let mut last_log_time = embassy_time::Instant::now();
+        let mut latest_accel = [0.0f32; 3];
+        let mut latest_gyro = [0.0f32; 3];
+        let mut latest_temp = 0.0f32;
+
+        // Buffer for FIFO data
+        let mut fifo_buffer = [0u8; 280]; // 20 packets worth
+
+        loop {
+            // Wait for interrupt indicating new data
+            self.wait_for_interrupt().await;
+
+            // Read available FIFO data
+            match self.read_fifo_batch(&mut fifo_buffer).await {
+                Ok(bytes_read) => {
+                    // Process packets (each packet is 14 bytes)
+                    let packet_size = 14;
+                    let packet_count = bytes_read / packet_size;
+                    for i in 0..packet_count {
+                        let packet_start = i * packet_size;
+                        if packet_start + packet_size <= bytes_read {
+                            let packet = &fifo_buffer[packet_start..packet_start + packet_size];
+                            let raw = self.parse_fifo_packet(packet.try_into().unwrap());
+                            let scaled = self.scale_data(&raw);
+                            latest_accel = scaled.accel;
+                            latest_gyro = scaled.gyro;
+                            latest_temp = scaled.temperature;
+                            sample_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    defmt::warn!("IMU FIFO read error: {:?}", e);
+                }
+            }
+
+            // Log statistics every second
+            let now = embassy_time::Instant::now();
+            if now.duration_since(last_log_time).as_millis() >= 1000 {
+                defmt::info!(
+                    "IMU Stats: {} samples/sec | Accel (m/s²): [{}, {}, {}] | Gyro (rad/s): [{}, {}, {}] | Temp: {} °C",
+                    sample_count,
+                    latest_accel[0],
+                    latest_accel[1],
+                    latest_accel[2],
+                    latest_gyro[0],
+                    latest_gyro[1],
+                    latest_gyro[2],
+                    latest_temp
+                );
+
+                sample_count = 0;
+                last_log_time = now;
+            }
+        }
+    }
+}

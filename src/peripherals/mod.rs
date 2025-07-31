@@ -7,6 +7,8 @@
 
 /// CDC ACM (virtual serial port) implementation
 pub mod acm;
+/// SPI peripheral configuration
+pub mod spi;
 /// System initialization and clock configuration
 pub mod system;
 /// USB system abstraction
@@ -15,4 +17,3 @@ pub mod usb_system;
 // Re-export commonly used types for convenience
 pub use acm::{AcmConnection, AcmState, Disconnected};
 pub use system::init_system;
-pub use usb_system::{UsbBuffers, UsbSystem, MAX_PACKET_SIZE};

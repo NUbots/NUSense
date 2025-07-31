@@ -65,22 +65,10 @@ macro_rules! claim_imu {
     }};
 }
 
-/// Raw IMU sensor data from chip registers
-#[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "debug", derive(defmt::Format))]
-pub struct RawImuData {
-    /// Raw accelerometer readings (X, Y, Z)
-    pub accel: [i16; 3],
-    /// Raw gyroscope readings (X, Y, Z)
-    pub gyro: [i16; 3],
-    /// Raw temperature reading
-    pub temperature: i16,
-}
-
 /// Scaled IMU sensor data in physical units
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "debug", derive(defmt::Format))]
-pub struct ScaledImuData {
+pub struct ImuData {
     /// Acceleration in m/s² (X, Y, Z)
     pub accel: [f32; 3],
     /// Angular velocity in rad/s (X, Y, Z)
@@ -182,30 +170,27 @@ impl<'d> Icm20689<'d> {
         Ok(bytes_to_read)
     }
 
-    /// Parse raw FIFO data into sensor readings
+    /// Parse raw FIFO data into scaled sensor readings
     ///
-    /// Each 12-byte packet contains: [accel_x_h, accel_x_l, accel_y_h, accel_y_l,
-    /// accel_z_h, accel_z_l, gyro_x_h, gyro_x_l, gyro_y_h, gyro_y_l, gyro_z_h, gyro_z_l]
-    pub fn parse_fifo_packet(&self, packet: &[u8; 14]) -> RawImuData {
-        // FIFO packet layout: accel_x, accel_y, accel_z, temp, gyro_x, gyro_y, gyro_z (2 bytes each, 14 bytes total)
-        RawImuData {
-            accel: [
-                i16::from_be_bytes([packet[0], packet[1]]), // X
-                i16::from_be_bytes([packet[2], packet[3]]), // Y
-                i16::from_be_bytes([packet[4], packet[5]]), // Z
-            ],
-            temperature: i16::from_be_bytes([packet[6], packet[7]]),
-            gyro: [
-                i16::from_be_bytes([packet[8], packet[9]]),   // X
-                i16::from_be_bytes([packet[10], packet[11]]), // Y
-                i16::from_be_bytes([packet[12], packet[13]]), // Z
-            ],
-        }
-    }
+    /// Each 14-byte packet contains: [accel_x_h, accel_x_l, accel_y_h, accel_y_l,
+    /// accel_z_h, accel_z_l, temp_h, temp_l, gyro_x_h, gyro_x_l, gyro_y_h, gyro_y_l, gyro_z_h, gyro_z_l]
+    /// Returns scaled data in physical units (m/s² for accelerometer, rad/s for gyroscope, °C for temperature)
+    #[allow(clippy::cast_precision_loss)]
+    pub fn parse_fifo_packet(&self, packet: &[u8; 14]) -> ImuData {
+        // Parse raw values from FIFO packet
+        let raw_accel = [
+            i16::from_be_bytes([packet[0], packet[1]]), // X
+            i16::from_be_bytes([packet[2], packet[3]]), // Y
+            i16::from_be_bytes([packet[4], packet[5]]), // Z
+        ];
+        let raw_temperature = i16::from_be_bytes([packet[6], packet[7]]);
+        let raw_gyro = [
+            i16::from_be_bytes([packet[8], packet[9]]),   // X
+            i16::from_be_bytes([packet[10], packet[11]]), // Y
+            i16::from_be_bytes([packet[12], packet[13]]), // Z
+        ];
 
-    /// Convert raw sensor data to physical units based on the current configuration.
-    fn scale_data(&self, raw: &RawImuData) -> ScaledImuData {
-        // Accelerometer scaling (LSB per g)
+        // Scale to physical units
         let accel_lsb_per_g = match self.config.accel_range {
             AccelRange::G2 => 16384.0,
             AccelRange::G4 => 8192.0,
@@ -214,7 +199,6 @@ impl<'d> Icm20689<'d> {
         };
         let accel_scale = 9.80665 / accel_lsb_per_g;
 
-        // Gyroscope scaling (LSB per deg/s)
         let gyro_lsb_per_dps = match self.config.gyro_range {
             GyroRange::Dps250 => 131.0,
             GyroRange::Dps500 => 65.5,
@@ -224,18 +208,18 @@ impl<'d> Icm20689<'d> {
         let gyro_scale = (core::f32::consts::PI / 180.0) / gyro_lsb_per_dps; // to rad/s
 
         // Temperature scaling (datasheet formula)
-        let temp_c = (raw.temperature as f32) / 333.87 + 21.0;
+        let temp_c = f32::from(raw_temperature) / 333.87 + 21.0;
 
-        ScaledImuData {
+        ImuData {
             accel: [
-                raw.accel[0] as f32 * accel_scale,
-                raw.accel[1] as f32 * accel_scale,
-                raw.accel[2] as f32 * accel_scale,
+                f32::from(raw_accel[0]) * accel_scale,
+                f32::from(raw_accel[1]) * accel_scale,
+                f32::from(raw_accel[2]) * accel_scale,
             ],
             gyro: [
-                raw.gyro[0] as f32 * gyro_scale,
-                raw.gyro[1] as f32 * gyro_scale,
-                raw.gyro[2] as f32 * gyro_scale,
+                f32::from(raw_gyro[0]) * gyro_scale,
+                f32::from(raw_gyro[1]) * gyro_scale,
+                f32::from(raw_gyro[2]) * gyro_scale,
             ],
             temperature: temp_c,
         }
@@ -390,8 +374,7 @@ impl<'d> Icm20689<'d> {
                         let packet_start = i * packet_size;
                         if packet_start + packet_size <= bytes_read {
                             let packet = &fifo_buffer[packet_start..packet_start + packet_size];
-                            let raw = self.parse_fifo_packet(packet.try_into().unwrap());
-                            let scaled = self.scale_data(&raw);
+                            let scaled = self.parse_fifo_packet(packet.try_into().unwrap());
                             latest_accel = scaled.accel;
                             latest_gyro = scaled.gyro;
                             latest_temp = scaled.temperature;

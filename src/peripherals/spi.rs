@@ -92,11 +92,14 @@ impl<'d> ImuSpi<'d> {
     /// * Register value on success
     /// * SPI error on failure
     ///
-    /// This function performs a generic SPI register read operation:
+    /// This function performs a register read operation for devices that use the MSB of the register address as a read bit flag:
     /// 1. Assert chip select (low)
     /// 2. Send register address with read bit set (MSB = 1)
     /// 3. Receive response data
     /// 4. Deassert chip select (high)
+    ///
+    /// **Note:** This MSB read bit convention is device-specific.
+    /// Consult your device's datasheet to determine the correct register read command format.
     pub async fn read_register(&mut self, reg: u8) -> Result<u8, embassy_stm32::spi::Error> {
         let tx_buf = [reg | 0x80, 0x00]; // Set read bit, dummy byte for response
         let mut rx_buf = [0u8; 2];

@@ -140,7 +140,13 @@ impl<'d> Icm20689<'d> {
         }
     }
 
-    /// Wait for interrupt from the IMU chip
+    /// Wait for an interrupt from the IMU chip.
+    ///
+    /// The IMU triggers an interrupt (by pulling the interrupt line low) when new sensor data is available
+    /// and ready to be read from the device. This method asynchronously waits until the interrupt line
+    /// is asserted, indicating that data is ready for acquisition. It resumes execution once the interrupt
+    /// is detected. If called when no interrupt is pending, it will await until the next data-ready event.
+    /// This is typically used to synchronize data reads with the IMU's output data rate (e.g., 1000Hz).
     pub async fn wait_for_interrupt(&mut self) {
         self.interrupt.wait_for_low().await;
     }
@@ -342,13 +348,13 @@ impl<'d> Icm20689<'d> {
     /// 2. Waits for interrupts from the IMU (indicating new data in FIFO)
     /// 3. Reads FIFO data using DMA
     /// 4. Logs statistics every second (data rate and latest readings)
-    pub async fn run(&mut self) -> ! {
+    pub async fn run(&mut self) -> Result<(), crate::Error> {
         defmt::info!("Starting IMU task - initializing ICM-20689...");
 
         // Initialize the IMU chip first
         if let Err(e) = self.initialize().await {
             defmt::error!("Failed to initialize IMU: {:?}", e);
-            panic!("IMU initialization failed");
+            return Err(e);
         }
 
         defmt::info!("IMU initialized successfully, starting 1000Hz data acquisition...");
@@ -359,8 +365,10 @@ impl<'d> Icm20689<'d> {
         let mut latest_gyro = [0.0f32; 3];
         let mut latest_temp = 0.0f32;
 
-        // Buffer for FIFO data
-        let mut fifo_buffer = [0u8; 280]; // 20 packets worth
+        /// Number of bytes in a FIFO packet (6 accel + 2 temp + 6 gyro)
+        const PACKET_SIZE: usize = 14;
+        // Buffer for up to 20 packets
+        let mut fifo_buffer = [0u8; PACKET_SIZE * 20];
 
         loop {
             // Wait for interrupt indicating new data
@@ -369,18 +377,29 @@ impl<'d> Icm20689<'d> {
             // Read available FIFO data
             match self.read_fifo_batch(&mut fifo_buffer).await {
                 Ok(bytes_read) => {
-                    // Process packets (each packet is 14 bytes)
-                    let packet_size = 14;
+                    // Process packets
+                    let packet_size = PACKET_SIZE;
                     let packet_count = bytes_read / packet_size;
                     for i in 0..packet_count {
                         let packet_start = i * packet_size;
                         if packet_start + packet_size <= bytes_read {
                             let packet = &fifo_buffer[packet_start..packet_start + packet_size];
-                            let scaled = self.parse_fifo_packet(packet.try_into().unwrap());
-                            latest_accel = scaled.accel;
-                            latest_gyro = scaled.gyro;
-                            latest_temp = scaled.temperature;
-                            sample_count += 1;
+                            match packet.try_into() {
+                                Ok(arr) => {
+                                    let scaled = self.parse_fifo_packet(arr);
+                                    latest_accel = scaled.accel;
+                                    latest_gyro = scaled.gyro;
+                                    latest_temp = scaled.temperature;
+                                    sample_count += 1;
+                                }
+                                Err(_) => {
+                                    defmt::warn!(
+                                        "IMU FIFO packet conversion error: expected 14 bytes, got {}",
+                                        packet.len()
+                                    );
+                                    continue;
+                                }
+                            }
                         }
                     }
                 }

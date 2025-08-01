@@ -393,10 +393,11 @@ impl<'d> Icm20689<'d> {
                                     latest_temp = scaled.temperature;
                                     sample_count += 1;
                                 }
-                                Err(_) => {
+                                Err(e) => {
                                     defmt::warn!(
-                                        "IMU FIFO packet conversion error: expected 14 bytes, got {}",
-                                        packet.len()
+                                        "IMU FIFO packet conversion error: expected 14 bytes, got {}, error: {:?}",
+                                        packet.len(),
+                                        e
                                     );
                                     continue;
                                 }

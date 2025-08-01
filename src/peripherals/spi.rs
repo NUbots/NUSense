@@ -131,7 +131,7 @@ impl<'d> ImuSpi<'d> {
     /// 3. Send data value
     /// 4. Deassert chip select (high)
     pub async fn write_register(&mut self, reg: u8, value: u8) -> Result<(), embassy_stm32::spi::Error> {
-        let tx_buf = [reg & 0x7F, value]; // Clear read bit
+        let tx_buf = [reg & SPI_WRITE_MASK, value]; // Clear read bit
 
         self.cs.set_low();
 

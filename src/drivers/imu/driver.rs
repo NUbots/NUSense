@@ -18,6 +18,8 @@ use embassy_stm32::{
 use embassy_time::{Duration, Timer};
 
 /// Register addresses for the ICM-20689
+///
+/// These correspond to the register map in the ICM-20689 datasheet.
 #[repr(u8)]
 #[derive(Copy, Clone)]
 enum Register {
@@ -198,22 +200,22 @@ impl<'d> Icm20689<'d> {
             i16::from_be_bytes([packet[12], packet[13]]), // Z
         ];
 
-        // Scale to physical units
+        // Scale to physical units using datasheet LSB values
         let accel_lsb_per_g = match self.config.accel_range {
-            AccelRange::G2 => 16384.0,
-            AccelRange::G4 => 8192.0,
-            AccelRange::G8 => 4096.0,
-            AccelRange::G16 => 2048.0,
+            AccelRange::G2 => 16384.0, // ±2g range
+            AccelRange::G4 => 8192.0,  // ±4g range
+            AccelRange::G8 => 4096.0,  // ±8g range
+            AccelRange::G16 => 2048.0, // ±16g range
         };
-        let accel_scale = 9.80665 / accel_lsb_per_g;
+        let accel_scale = 9.80665 / accel_lsb_per_g; // Convert to m/s²
 
         let gyro_lsb_per_dps = match self.config.gyro_range {
-            GyroRange::Dps250 => 131.0,
-            GyroRange::Dps500 => 65.5,
-            GyroRange::Dps1000 => 32.8,
-            GyroRange::Dps2000 => 16.4,
+            GyroRange::Dps250 => 131.0, // ±250°/s range
+            GyroRange::Dps500 => 65.5,  // ±500°/s range
+            GyroRange::Dps1000 => 32.8, // ±1000°/s range
+            GyroRange::Dps2000 => 16.4, // ±2000°/s range
         };
-        let gyro_scale = (core::f32::consts::PI / 180.0) / gyro_lsb_per_dps; // to rad/s
+        let gyro_scale = (core::f32::consts::PI / 180.0) / gyro_lsb_per_dps; // Convert to rad/s
 
         // Temperature scaling (datasheet formula)
         let temp_c = f32::from(raw_temperature) / 333.87 + 21.0;
@@ -291,9 +293,9 @@ impl<'d> Icm20689<'d> {
             .write_register(Register::Config as u8, CONFIG_DLPF_BANDWIDTH)
             .await?;
 
-        // Configure sample rate divider for 1000Hz
+        // Configure sample rate divider for 1000Hz output
         // Sample Rate = Internal_Sample_Rate / (1 + SMPLRT_DIV)
-        // For 1000Hz: SMPLRT_DIV = 0 (since internal rate is 1000Hz with DLPF enabled)
+        // With DLPF enabled, internal rate is 1000Hz, so SMPLRT_DIV = 0
         self.spi.write_register(Register::SmplrtDiv as u8, 0b0000_0000).await?;
 
         // Configure accelerometer range
@@ -315,7 +317,7 @@ impl<'d> Icm20689<'d> {
         self.spi.write_register(Register::UserCtrl as u8, USER_FIFO_RST).await?;
         Timer::after(Duration::from_millis(1)).await;
 
-        // Enable FIFO for TEMP + GYRO + ACCEL
+        // Enable FIFO for TEMP + GYRO + ACCEL (bits 7-3 set)
         const FIFO_TEMP_GYRO_ACCEL: u8 = 0b1111_1000;
         self.spi
             .write_register(Register::FifoEn as u8, FIFO_TEMP_GYRO_ACCEL)
@@ -367,7 +369,7 @@ impl<'d> Icm20689<'d> {
 
         /// Number of bytes in a FIFO packet (6 accel + 2 temp + 6 gyro)
         const PACKET_SIZE: usize = 14;
-        // Buffer for up to 20 packets
+        /// Buffer sized for up to 20 packets to handle FIFO bursts
         let mut fifo_buffer = [0u8; PACKET_SIZE * 20];
 
         loop {
@@ -377,10 +379,11 @@ impl<'d> Icm20689<'d> {
             // Read available FIFO data
             match self.read_fifo_batch(&mut fifo_buffer).await {
                 Ok(bytes_read) => {
-                    // Process packets of constant size
+                    // Process complete packets from FIFO data
                     let packet_count = bytes_read / PACKET_SIZE;
                     for i in 0..packet_count {
                         let packet_start = i * PACKET_SIZE;
+                        // Ensure we have a complete packet before processing
                         if packet_start + PACKET_SIZE <= bytes_read {
                             let packet = &fifo_buffer[packet_start..packet_start + PACKET_SIZE];
                             match packet.try_into() {
@@ -407,7 +410,7 @@ impl<'d> Icm20689<'d> {
                 }
             }
 
-            // Log statistics every second
+            // Log statistics every second to monitor data rate and values
             let now = embassy_time::Instant::now();
             if now.duration_since(last_log_time).as_millis() >= 1000 {
                 defmt::info!(

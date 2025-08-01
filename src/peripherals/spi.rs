@@ -12,19 +12,30 @@ use embassy_stm32::{
     Peri,
 };
 
+/// Peripheral collection for IMU SPI interface
+pub struct SpiPeripherals<'d> {
+    pub spi4: Peri<'d, SPI4>,
+    pub cs: Peri<'d, PE11>,         // CS
+    pub sck: Peri<'d, PE12>,        // SCK
+    pub miso: Peri<'d, PE13>,       // MISO
+    pub mosi: Peri<'d, PE14>,       // MOSI
+    pub dma_tx: Peri<'d, DMA1_CH0>, // TX DMA
+    pub dma_rx: Peri<'d, DMA1_CH1>, // RX DMA
+}
+
 /// Macro to claim peripherals for ImuSpi
 #[macro_export]
 macro_rules! claim_imu_spi {
     ($peripherals:expr) => {{
-        (
-            $peripherals.SPI4.reborrow(),
-            $peripherals.PE11.reborrow(),     // CS
-            $peripherals.PE12.reborrow(),     // SCK
-            $peripherals.PE13.reborrow(),     // MISO
-            $peripherals.PE14.reborrow(),     // MOSI
-            $peripherals.DMA1_CH0.reborrow(), // TX DMA
-            $peripherals.DMA1_CH1.reborrow(), // RX DMA
-        )
+        $crate::peripherals::spi::SpiPeripherals {
+            spi4: $peripherals.SPI4.reborrow(),
+            cs: $peripherals.PE11.reborrow(),         // CS
+            sck: $peripherals.PE12.reborrow(),        // SCK
+            miso: $peripherals.PE13.reborrow(),       // MISO
+            mosi: $peripherals.PE14.reborrow(),       // MOSI
+            dma_tx: $peripherals.DMA1_CH0.reborrow(), // TX DMA
+            dma_rx: $peripherals.DMA1_CH1.reborrow(), // RX DMA
+        }
     }};
 }
 
@@ -44,23 +55,11 @@ impl<'d> ImuSpi<'d> {
     /// Create a new IMU SPI configuration with software chip select
     ///
     /// # Arguments
-    /// * `peripherals` - Tuple of (SPI4, PE11, PE12, PE13, PE14, DMA1_CH0, DMA1_CH1)
+    /// * `peripherals` - SpiPeripherals struct containing all required peripherals
     ///
     /// # Returns
     /// Configured SPI instance with software chip select control
-    pub fn new(
-        peripherals: (
-            Peri<'d, SPI4>,
-            Peri<'d, PE11>,     // CS
-            Peri<'d, PE12>,     // SCK
-            Peri<'d, PE13>,     // MISO
-            Peri<'d, PE14>,     // MOSI
-            Peri<'d, DMA1_CH0>, // TX DMA
-            Peri<'d, DMA1_CH1>, // RX DMA
-        ),
-    ) -> Self {
-        let (spi_peripheral, chip_select, sck, miso, mosi, dma_tx, dma_rx) = peripherals;
-
+    pub fn new(peripherals: SpiPeripherals<'d>) -> Self {
         // Configure SPI for ICM-20689 to match CubeMX configuration
         let mut config = SpiConfig::default();
         config.mode = Mode {
@@ -69,11 +68,19 @@ impl<'d> ImuSpi<'d> {
         };
         config.frequency = Hertz(8_000_000);
 
-        let cs = Output::new(chip_select, Level::High, Speed::VeryHigh);
+        let cs_pin = Output::new(peripherals.cs, Level::High, Speed::VeryHigh);
 
-        let spi = Spi::new(spi_peripheral, sck, mosi, miso, dma_tx, dma_rx, config);
+        let spi = Spi::new(
+            peripherals.spi4,
+            peripherals.sck,
+            peripherals.mosi,
+            peripherals.miso,
+            peripherals.dma_tx,
+            peripherals.dma_rx,
+            config,
+        );
 
-        Self { spi, cs }
+        Self { spi, cs: cs_pin }
     }
 
     /// Read a single register from an SPI device

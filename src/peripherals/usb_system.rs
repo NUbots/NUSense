@@ -11,25 +11,42 @@ use embassy_stm32::{
 };
 use embassy_usb::{Builder, UsbDevice};
 
+/// Peripheral collection for USB system interface
+pub struct UsbPeripherals<'d> {
+    pub usb_otg_hs: Peri<'d, USB_OTG_HS>,
+    pub ulpi_clk: Peri<'d, PA5>, // USB_OTG_HS_ULPI_CK
+    pub ulpi_dir: Peri<'d, PC2>, // USB_OTG_HS_ULPI_DIR
+    pub ulpi_nxt: Peri<'d, PC3>, // USB_OTG_HS_ULPI_NXT
+    pub ulpi_stp: Peri<'d, PC0>, // USB_OTG_HS_ULPI_STP
+    pub ulpi_d0: Peri<'d, PA3>,  // USB_OTG_HS_ULPI_D0
+    pub ulpi_d1: Peri<'d, PB0>,  // USB_OTG_HS_ULPI_D1
+    pub ulpi_d2: Peri<'d, PB1>,  // USB_OTG_HS_ULPI_D2
+    pub ulpi_d3: Peri<'d, PB10>, // USB_OTG_HS_ULPI_D3
+    pub ulpi_d4: Peri<'d, PB11>, // USB_OTG_HS_ULPI_D4
+    pub ulpi_d5: Peri<'d, PB12>, // USB_OTG_HS_ULPI_D5
+    pub ulpi_d6: Peri<'d, PB13>, // USB_OTG_HS_ULPI_D6
+    pub ulpi_d7: Peri<'d, PB5>,  // USB_OTG_HS_ULPI_D7
+}
+
 /// Macro to claim peripherals for UsbSystem
 #[macro_export]
 macro_rules! claim_usb {
     ($peripherals:expr) => {{
-        (
-            $peripherals.USB_OTG_HS.reborrow(),
-            $peripherals.PA5.reborrow(),  // USB_OTG_HS_ULPI_CK
-            $peripherals.PC2.reborrow(),  // USB_OTG_HS_ULPI_DIR
-            $peripherals.PC3.reborrow(),  // USB_OTG_HS_ULPI_NXT
-            $peripherals.PC0.reborrow(),  // USB_OTG_HS_ULPI_STP
-            $peripherals.PA3.reborrow(),  // USB_OTG_HS_ULPI_D0
-            $peripherals.PB0.reborrow(),  // USB_OTG_HS_ULPI_D1
-            $peripherals.PB1.reborrow(),  // USB_OTG_HS_ULPI_D2
-            $peripherals.PB10.reborrow(), // USB_OTG_HS_ULPI_D3
-            $peripherals.PB11.reborrow(), // USB_OTG_HS_ULPI_D4
-            $peripherals.PB12.reborrow(), // USB_OTG_HS_ULPI_D5
-            $peripherals.PB13.reborrow(), // USB_OTG_HS_ULPI_D6
-            $peripherals.PB5.reborrow(),  // USB_OTG_HS_ULPI_D7
-        )
+        $crate::peripherals::usb_system::UsbPeripherals {
+            usb_otg_hs: $peripherals.USB_OTG_HS.reborrow(),
+            ulpi_clk: $peripherals.PA5.reborrow(), // USB_OTG_HS_ULPI_CK
+            ulpi_dir: $peripherals.PC2.reborrow(), // USB_OTG_HS_ULPI_DIR
+            ulpi_nxt: $peripherals.PC3.reborrow(), // USB_OTG_HS_ULPI_NXT
+            ulpi_stp: $peripherals.PC0.reborrow(), // USB_OTG_HS_ULPI_STP
+            ulpi_d0: $peripherals.PA3.reborrow(),  // USB_OTG_HS_ULPI_D0
+            ulpi_d1: $peripherals.PB0.reborrow(),  // USB_OTG_HS_ULPI_D1
+            ulpi_d2: $peripherals.PB1.reborrow(),  // USB_OTG_HS_ULPI_D2
+            ulpi_d3: $peripherals.PB10.reborrow(), // USB_OTG_HS_ULPI_D3
+            ulpi_d4: $peripherals.PB11.reborrow(), // USB_OTG_HS_ULPI_D4
+            ulpi_d5: $peripherals.PB12.reborrow(), // USB_OTG_HS_ULPI_D5
+            ulpi_d6: $peripherals.PB13.reborrow(), // USB_OTG_HS_ULPI_D6
+            ulpi_d7: $peripherals.PB5.reborrow(),  // USB_OTG_HS_ULPI_D7
+        }
     }};
 }
 
@@ -90,43 +107,10 @@ impl<'d> UsbSystem<'d> {
     /// Create a new USB system
     ///
     /// # Arguments
-    /// * `peripherals` - Tuple of (USB_OTG_HS, PA5, PC2, PC3, PC0, PA3, PB0, PB1, PB10, PB11, PB12, PB13, PB5)
+    /// * `peripherals` - UsbPeripherals struct containing all required peripherals
     /// * `usb_buffers` - Pre-allocated buffers for USB operations
-    pub fn new(
-        peripherals: (
-            Peri<'d, USB_OTG_HS>,
-            Peri<'d, PA5>,  // USB_OTG_HS_ULPI_CK
-            Peri<'d, PC2>,  // USB_OTG_HS_ULPI_DIR
-            Peri<'d, PC3>,  // USB_OTG_HS_ULPI_NXT
-            Peri<'d, PC0>,  // USB_OTG_HS_ULPI_STP
-            Peri<'d, PA3>,  // USB_OTG_HS_ULPI_D0
-            Peri<'d, PB0>,  // USB_OTG_HS_ULPI_D1
-            Peri<'d, PB1>,  // USB_OTG_HS_ULPI_D2
-            Peri<'d, PB10>, // USB_OTG_HS_ULPI_D3
-            Peri<'d, PB11>, // USB_OTG_HS_ULPI_D4
-            Peri<'d, PB12>, // USB_OTG_HS_ULPI_D5
-            Peri<'d, PB13>, // USB_OTG_HS_ULPI_D6
-            Peri<'d, PB5>,  // USB_OTG_HS_ULPI_D7
-        ),
-        usb_buffers: &'d mut UsbBuffers,
-    ) -> Self {
+    pub fn new(peripherals: UsbPeripherals<'d>, usb_buffers: &'d mut UsbBuffers) -> Self {
         info!("Initializing USB system...");
-
-        let (
-            usb_otg_hs,
-            ulpi_clk,
-            ulpi_dir,
-            ulpi_nxt,
-            ulpi_stp,
-            ulpi_d0,
-            ulpi_d1,
-            ulpi_d2,
-            ulpi_d3,
-            ulpi_d4,
-            ulpi_d5,
-            ulpi_d6,
-            ulpi_d7,
-        ) = peripherals;
 
         // Configure USB device descriptor
         let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -139,20 +123,20 @@ impl<'d> UsbSystem<'d> {
         usb_config.vbus_detection = true;
 
         let driver = Driver::new_hs_ulpi(
-            usb_otg_hs,
+            peripherals.usb_otg_hs,
             UsbInterrupts,
-            ulpi_clk,
-            ulpi_dir,
-            ulpi_nxt,
-            ulpi_stp,
-            ulpi_d0,
-            ulpi_d1,
-            ulpi_d2,
-            ulpi_d3,
-            ulpi_d4,
-            ulpi_d5,
-            ulpi_d6,
-            ulpi_d7,
+            peripherals.ulpi_clk,
+            peripherals.ulpi_dir,
+            peripherals.ulpi_nxt,
+            peripherals.ulpi_stp,
+            peripherals.ulpi_d0,
+            peripherals.ulpi_d1,
+            peripherals.ulpi_d2,
+            peripherals.ulpi_d3,
+            peripherals.ulpi_d4,
+            peripherals.ulpi_d5,
+            peripherals.ulpi_d6,
+            peripherals.ulpi_d7,
             &mut usb_buffers.ep_out_buffer,
             usb_config,
         );

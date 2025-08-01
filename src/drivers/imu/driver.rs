@@ -40,6 +40,7 @@ enum Register {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "debug", derive(defmt::Format))]
+#[allow(dead_code)]
 pub enum AccelRange {
     G2 = 0b00 << 3,
     G4 = 0b01 << 3,
@@ -50,6 +51,7 @@ pub enum AccelRange {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "debug", derive(defmt::Format))]
+#[allow(dead_code)]
 pub enum GyroRange {
     Dps250 = 0b00 << 3,
     Dps500 = 0b01 << 3,

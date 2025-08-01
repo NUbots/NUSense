@@ -368,8 +368,10 @@ impl<'d> Icm20689<'d> {
 
         /// Number of bytes in a FIFO packet (6 accel + 2 temp + 6 gyro)
         const PACKET_SIZE: usize = 14;
+        /// Maximum number of packets to read from FIFO at once
+        const MAX_PACKETS: usize = 20;
         // Buffer sized for up to 20 packets to handle FIFO bursts
-        let mut fifo_buffer = [0u8; PACKET_SIZE * 20];
+        let mut fifo_buffer = [0u8; PACKET_SIZE * MAX_PACKETS];
 
         loop {
             // Wait for interrupt indicating new data

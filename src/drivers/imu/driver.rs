@@ -348,7 +348,7 @@ impl<'d> Icm20689<'d> {
     /// 2. Waits for interrupts from the IMU (indicating new data in FIFO)
     /// 3. Reads FIFO data using DMA
     /// 4. Logs statistics every second (data rate and latest readings)
-    pub async fn run(&mut self) -> Result<(), crate::Error> {
+    pub async fn run(&mut self) -> Result<(), ImuError> {
         defmt::info!("Starting IMU task - initializing ICM-20689...");
 
         // Initialize the IMU chip first
@@ -377,13 +377,12 @@ impl<'d> Icm20689<'d> {
             // Read available FIFO data
             match self.read_fifo_batch(&mut fifo_buffer).await {
                 Ok(bytes_read) => {
-                    // Process packets
-                    let packet_size = PACKET_SIZE;
-                    let packet_count = bytes_read / packet_size;
+                    // Process packets of constant size
+                    let packet_count = bytes_read / PACKET_SIZE;
                     for i in 0..packet_count {
-                        let packet_start = i * packet_size;
-                        if packet_start + packet_size <= bytes_read {
-                            let packet = &fifo_buffer[packet_start..packet_start + packet_size];
+                        let packet_start = i * PACKET_SIZE;
+                        if packet_start + PACKET_SIZE <= bytes_read {
+                            let packet = &fifo_buffer[packet_start..packet_start + PACKET_SIZE];
                             match packet.try_into() {
                                 Ok(arr) => {
                                     let scaled = self.parse_fifo_packet(arr);

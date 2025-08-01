@@ -185,7 +185,6 @@ impl<'d> Icm20689<'d> {
     /// Each 14-byte packet contains: [accel_x_h, accel_x_l, accel_y_h, accel_y_l,
     /// accel_z_h, accel_z_l, temp_h, temp_l, gyro_x_h, gyro_x_l, gyro_y_h, gyro_y_l, gyro_z_h, gyro_z_l]
     /// Returns scaled data in physical units (m/s² for accelerometer, rad/s for gyroscope, °C for temperature)
-    #[allow(clippy::cast_precision_loss)]
     pub fn parse_fifo_packet(&self, packet: &[u8; 14]) -> ImuData {
         // Parse raw values from FIFO packet
         let raw_accel = [
@@ -369,7 +368,7 @@ impl<'d> Icm20689<'d> {
 
         /// Number of bytes in a FIFO packet (6 accel + 2 temp + 6 gyro)
         const PACKET_SIZE: usize = 14;
-        /// Buffer sized for up to 20 packets to handle FIFO bursts
+        // Buffer sized for up to 20 packets to handle FIFO bursts
         let mut fifo_buffer = [0u8; PACKET_SIZE * 20];
 
         loop {

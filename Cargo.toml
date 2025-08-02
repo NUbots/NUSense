@@ -27,6 +27,7 @@ ignored = ["cortex-m", "cortex-m-rt"]
 [[bin]]
 name = "nusense-rs"
 path = "src/main.rs"
+harness = false
 
 [profile.dev]
 debug = true

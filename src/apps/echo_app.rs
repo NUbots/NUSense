@@ -11,7 +11,8 @@
 //! - System status and diagnostics reporting
 //! - Configuration and calibration interfaces
 
-use crate::peripherals::{AcmConnection, Disconnected, MAX_PACKET_SIZE};
+use crate::peripherals::usb_system::MAX_PACKET_SIZE;
+use crate::peripherals::{AcmConnection, Disconnected};
 use defmt::{info, warn};
 use embassy_time::Timer;
 

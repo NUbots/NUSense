@@ -133,7 +133,7 @@ impl<'d> ImuSpi<'d> {
     /// 3. Send data value
     /// 4. Deassert chip select (high)
     pub async fn write_register(&mut self, reg: u8, value: u8) -> Result<(), embassy_stm32::spi::Error> {
-        /// Having the MSB of the register address set to 0 is the convention for writing to a register
+        // Having the MSB of the register address set to 0 is the convention for writing to a register
         const SPI_WRITE_MASK: u8 = 0x7F;
         let tx_buf = [reg & SPI_WRITE_MASK, value]; // Clear read bit
 

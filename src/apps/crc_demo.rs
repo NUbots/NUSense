@@ -61,13 +61,13 @@ impl<'d> CrcDemoApp<'d> {
             "Software CRC: [{:02X}, {:02X}] (avg {}x)",
             sw_crc[0],
             sw_crc[1],
-            f32::from(sw_avg) / f32::from(hw_avg)
+            sw_avg / hw_avg
         );
         info!(
             "Bit-wise CRC: [{:02X}, {:02X}] (avg {}x)",
             bw_crc[0],
             bw_crc[1],
-            f32::from(bw_avg) / f32::from(hw_avg)
+            bw_avg / hw_avg
         );
         info!("Expected CRC: [{:02X}, {:02X}]", expected[0], expected[1]);
 
@@ -137,6 +137,7 @@ impl<'d> CrcDemoApp<'d> {
     /// - Polynomial: 0x8005 (x^16 + x^15 + x^2 + 1)
     /// - Initial value: 0x0000
     /// - No input/output reflection
+    ///
     /// This is much slower than the lookup table method but useful for comparison.
     fn calculate_crc_bitwise(&self, data: &[u8]) -> [u8; 2] {
         const CRC_POLYNOMIAL: u16 = 0x8005;

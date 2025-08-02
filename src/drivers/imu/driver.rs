@@ -101,7 +101,7 @@ impl Default for ImuConfig {
 }
 
 /// IMU driver errors
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "debug", derive(defmt::Format))]
 pub enum ImuError {
     /// SPI communication error

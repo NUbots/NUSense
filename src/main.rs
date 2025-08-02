@@ -11,10 +11,10 @@ mod apps;
 mod drivers;
 mod peripherals;
 
-use apps::EchoApp;
+use apps::{CrcDemoApp, EchoApp};
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_futures::join::join3;
+use embassy_futures::join::join4;
 use peripherals::usb_system::UsbBuffers;
 use peripherals::{init_system, AcmConnection, AcmState};
 
@@ -43,6 +43,10 @@ async fn main(_spawner: Spawner) {
     let spi = peripherals::spi::ImuSpi::new(claim_imu_spi!(peripherals));
     let mut imu = drivers::imu::Icm20689::new(spi, claim_imu!(peripherals));
 
+    // Initialize CRC processor for demo
+    let crc_processor = peripherals::crc::CrcProcessor::new(claim_crc!(peripherals));
+    let mut crc_demo = CrcDemoApp::new(crc_processor);
+
     // Initialize the USB system
     let mut usb_system = peripherals::usb_system::UsbSystem::new(claim_usb!(peripherals), &mut usb_buffers);
 
@@ -52,13 +56,14 @@ async fn main(_spawner: Spawner) {
     // Initialize the echo application with the ACM connection
     let mut echo_app = EchoApp::new(acm_connection);
 
-    info!("System initialized, starting USB device, echo application, and IMU...");
+    info!("System initialized, starting USB device, echo application, IMU, and CRC demo...");
 
     // Run all tasks concurrently
     let usb_task = usb_system.run();
     let echo_task = echo_app.run();
     let imu_task = imu.run();
+    let crc_demo_task = crc_demo.run();
 
     // All tasks run indefinitely, so this join never completes
-    join3(usb_task, echo_task, imu_task).await;
+    join4(usb_task, echo_task, imu_task, crc_demo_task).await;
 }

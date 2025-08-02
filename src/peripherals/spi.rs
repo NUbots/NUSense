@@ -28,13 +28,13 @@ pub struct SpiPeripherals<'d> {
 macro_rules! claim_imu_spi {
     ($peripherals:expr) => {{
         $crate::peripherals::spi::SpiPeripherals {
-            spi4: $peripherals.SPI4.reborrow(),
-            cs: $peripherals.PE11.reborrow(),         // CS
-            sck: $peripherals.PE12.reborrow(),        // SCK
-            miso: $peripherals.PE13.reborrow(),       // MISO
-            mosi: $peripherals.PE14.reborrow(),       // MOSI
-            dma_tx: $peripherals.DMA1_CH0.reborrow(), // TX DMA
-            dma_rx: $peripherals.DMA1_CH1.reborrow(), // RX DMA
+            spi4: $peripherals.SPI4,
+            cs: $peripherals.PE11,         // CS
+            sck: $peripherals.PE12,        // SCK
+            miso: $peripherals.PE13,       // MISO
+            mosi: $peripherals.PE14,       // MOSI
+            dma_tx: $peripherals.DMA1_CH0, // TX DMA
+            dma_rx: $peripherals.DMA1_CH1, // RX DMA
         }
     }};
 }

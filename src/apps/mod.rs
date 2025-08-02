@@ -16,5 +16,4 @@ pub mod crc_demo;
 pub mod echo_app;
 
 // Re-export for convenience
-pub use crc_demo::CrcDemoApp;
 pub use echo_app::EchoApp;

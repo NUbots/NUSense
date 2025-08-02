@@ -19,7 +19,7 @@ pub struct CrcPeripherals<'d> {
 macro_rules! claim_crc {
     ($peripherals:expr) => {{
         $crate::peripherals::crc::CrcPeripherals {
-            crc: $peripherals.CRC.reborrow(),
+            crc: $peripherals.CRC,
         }
     }};
 }

@@ -10,8 +10,11 @@
 //! Applications use the hardware abstractions from the peripherals layer to implement
 //! robotics functionality like motion control, sensor processing, and communication.
 
+/// CRC demonstration application for Dynamixel protocol
+pub mod crc_demo;
 /// Simple echo application for testing USB CDC ACM communication
 pub mod echo_app;
 
 // Re-export for convenience
+pub use crc_demo::CrcDemoApp;
 pub use echo_app::EchoApp;

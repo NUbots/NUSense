@@ -90,7 +90,7 @@ impl<'d> CrcProcessor<'d> {
     /// // Calculate CRC for instruction packet
     /// let packet = [0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x07, 0x00, 0x02, 0x00, 0x00, 0x02, 0x00];
     /// let crc = crc_processor.calculate_crc(&packet);
-    /// // crc will be [0x1D, 0x15] for this example packet
+    /// // crc will be [0x21, 0x51] for this example packet
     /// ```
     pub fn calculate_crc(&mut self, data: &[u8]) -> [u8; 2] {
         // Reset CRC to initial state

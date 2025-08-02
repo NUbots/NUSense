@@ -101,7 +101,7 @@ impl<'d> ImuSpi<'d> {
     /// **Note:** This MSB read bit convention is device-specific.
     /// Consult your device's datasheet to determine the correct register read command format.
     pub async fn read_register(&mut self, reg: u8) -> Result<u8, embassy_stm32::spi::Error> {
-        /// Having the MSB of the register address set to 1 is the convention for reading from a register
+        // Having the MSB of the register address set to 1 is the convention for reading from a register
         const SPI_READ_BIT: u8 = 0x80;
         let tx_buf = [reg | SPI_READ_BIT, 0x00]; // Set read bit, dummy byte for response
         let mut rx_buf = [0u8; 2];

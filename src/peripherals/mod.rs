@@ -7,6 +7,8 @@
 
 /// CDC ACM (virtual serial port) implementation
 pub mod acm;
+/// CRC peripheral for Dynamixel 2.0 protocol
+pub mod crc;
 /// SPI peripheral configuration
 pub mod spi;
 /// System initialization and clock configuration

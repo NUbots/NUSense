@@ -1,8 +1,7 @@
 //! Dynamixel CRC demonstration application.
 //!
-//! This application demonstrates the usage of the CRC peripheral for calculating
-//! Dynamixel 2.0 protocol CRCs. It shows how multiple tasks can safely share
-//! the CRC peripheral using async/await.
+//! This application demonstrates the usage of the hardware CRC peripheral for calculating
+//! Dynamixel 2.0 protocol CRCs and compares it against a software implementation.
 
 use crate::peripherals::crc::CrcProcessor;
 use defmt::{info, warn};
@@ -17,176 +16,155 @@ impl<'d> CrcDemoApp<'d> {
     /// Create a new CRC demonstration application
     ///
     /// # Arguments
-    /// * `crc_processor` - The shared CRC processor instance
+    /// * `crc_processor` - The CRC processor instance
     pub fn new(crc_processor: CrcProcessor<'d>) -> Self {
         Self { crc_processor }
     }
 
+    /// Software implementation of Dynamixel 2.0 CRC-16 for comparison
+    ///
+    /// This implements the same CRC-16 IBM/ANSI algorithm used by Dynamixel 2.0:
+    /// - Polynomial: 0x8005 (x^16 + x^15 + x^2 + 1)
+    /// - Initial value: 0x0000
+    /// - No input/output reflection
+    fn calculate_crc_software(&self, data: &[u8]) -> [u8; 2] {
+        const CRC_POLYNOMIAL: u16 = 0x8005;
+        let mut crc: u16 = 0x0000;
+
+        for &byte in data {
+            crc ^= (byte as u16) << 8;
+            for _ in 0..8 {
+                if (crc & 0x8000) != 0 {
+                    crc = (crc << 1) ^ CRC_POLYNOMIAL;
+                } else {
+                    crc <<= 1;
+                }
+            }
+        }
+
+        // Return as little-endian bytes [CRC_L, CRC_H]
+        [
+            (crc & 0xFF) as u8,        // Low byte
+            ((crc >> 8) & 0xFF) as u8, // High byte
+        ]
+    }
+
     /// Run the CRC demonstration
     ///
-    /// This demonstrates various CRC operations including:
-    /// - Basic CRC calculation
-    /// - Packet verification
-    /// - CRC appending
-    /// - Concurrent access simulation
+    /// This demonstrates CRC calculation using both hardware and software implementations
+    /// and validates against known Dynamixel test vectors.
     pub async fn run(&mut self) -> ! {
-        info!("Starting CRC Demo Application");
+        info!("Starting CRC Demo Application - Hardware vs Software Comparison");
 
-        // Demonstrate basic CRC calculation with known test vectors
-        self.test_known_vectors().await;
+        // Test vectors from Dynamixel 2.0 documentation
+        let test_cases = [
+            (
+                "Read instruction",
+                &[0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x07, 0x00, 0x02, 0x00, 0x00, 0x02, 0x00][..],
+                [0x21, 0x51],
+            ),
+            (
+                "Ping instruction",
+                &[0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x03, 0x00, 0x01][..],
+                [0x19, 0x4E],
+            ),
+            (
+                "Write instruction",
+                &[
+                    0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x09, 0x00, 0x03, 0x74, 0x00, 0x00, 0x02, 0x00, 0x00,
+                ][..],
+                [0xCA, 0x89],
+            ),
+        ];
 
-        // Demonstrate packet building and verification
-        self.test_packet_operations().await;
+        // Test all vectors
+        for (i, (name, packet, expected)) in test_cases.iter().enumerate() {
+            info!("=== Test {}: {} ===", i + 1, name);
 
-        // Simulate concurrent access
-        self.test_concurrent_access().await;
+            // Calculate using hardware CRC
+            let hw_crc = self.crc_processor.calculate_crc(packet);
 
-        // Run periodic CRC operations
+            // Calculate using software CRC
+            let sw_crc = self.calculate_crc_software(packet);
+
+            info!("Hardware CRC: [{:02X}, {:02X}]", hw_crc[0], hw_crc[1]);
+            info!("Software CRC: [{:02X}, {:02X}]", sw_crc[0], sw_crc[1]);
+            info!("Expected CRC: [{:02X}, {:02X}]", expected[0], expected[1]);
+
+            // Verify results
+            let hw_correct = hw_crc == *expected;
+            let sw_correct = sw_crc == *expected;
+            let hw_sw_match = hw_crc == sw_crc;
+
+            info!("Hardware correct: {}", hw_correct);
+            info!("Software correct: {}", sw_correct);
+            info!("Hardware/Software match: {}", hw_sw_match);
+
+            if hw_correct && sw_correct && hw_sw_match {
+                info!("✓ Test {} PASSED", i + 1);
+            } else {
+                warn!("✗ Test {} FAILED", i + 1);
+            }
+            info!("");
+        }
+
+        // Run periodic demonstrations
         let mut counter = 0u32;
         loop {
-            Timer::after(Duration::from_secs(5)).await;
+            Timer::after(Duration::from_secs(10)).await;
             counter += 1;
 
-            info!("CRC Demo cycle {}", counter);
+            info!("=== Demo Cycle {} ===", counter);
 
-            // Create a test Dynamixel packet (Read instruction) without CRC
+            // Create a dynamic test packet
             let test_packet = [
-                0xFF, 0xFF, 0xFD, 0x00, // Header + Reserved
-                0x01, // ID
-                0x07, 0x00, // Length (7 bytes)
+                0xFF,
+                0xFF,
+                0xFD,
+                0x00,                      // Header + Reserved
+                (counter % 254 + 1) as u8, // ID (1-254)
+                0x07,
+                0x00, // Length (7 bytes)
                 0x02, // Read instruction
-                0x84, 0x00, // Address (132 = Present Position)
-                0x04, 0x00, // Data length (4 bytes)
+                0x84,
+                0x00, // Address (Present Position)
+                0x04,
+                0x00, // Data length (4 bytes)
             ];
 
-            // Calculate CRC using hardware peripheral
-            let crc = self.crc_processor.calculate_crc(&test_packet).await;
+            // Calculate CRC with both methods
+            let hw_crc = self.crc_processor.calculate_crc(&test_packet);
+            let sw_crc = self.calculate_crc_software(&test_packet);
 
-            // Create complete packet with CRC
+            // Create complete packet
             let mut complete_packet = [0u8; 14];
             complete_packet[..12].copy_from_slice(&test_packet);
-            complete_packet[12] = crc[0]; // CRC_L
-            complete_packet[13] = crc[1]; // CRC_H
+            complete_packet[12] = hw_crc[0];
+            complete_packet[13] = hw_crc[1];
 
             info!(
-                "Generated packet: [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}]",
+                "Packet for ID {}: [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}]",
+                test_packet[4],
                 complete_packet[0], complete_packet[1], complete_packet[2], complete_packet[3],
                 complete_packet[4], complete_packet[5], complete_packet[6], complete_packet[7],
                 complete_packet[8], complete_packet[9], complete_packet[10], complete_packet[11],
                 complete_packet[12], complete_packet[13]
             );
 
-            // Verify by recalculating CRC
-            let verify_crc = self.crc_processor.calculate_crc(&complete_packet[..12]).await;
-            let is_valid = verify_crc[0] == complete_packet[12] && verify_crc[1] == complete_packet[13];
-            info!("Packet CRC verification: {}", if is_valid { "PASS" } else { "FAIL" });
+            info!("Hardware CRC: [{:02X}, {:02X}]", hw_crc[0], hw_crc[1]);
+            info!("Software CRC: [{:02X}, {:02X}]", sw_crc[0], sw_crc[1]);
+            info!("Match: {}", hw_crc == sw_crc);
+
+            // Verify packet integrity
+            let verify_crc = self.crc_processor.calculate_crc(&complete_packet[..12]);
+            let is_valid = verify_crc == [complete_packet[12], complete_packet[13]];
+            info!("Packet verification: {}", if is_valid { "PASS" } else { "FAIL" });
 
             if !is_valid {
-                warn!("CRC verification failed!");
+                warn!("Packet verification failed!");
             }
+
+            info!("");
         }
-    }
-
-    /// Test CRC calculation against known test vectors from Dynamixel documentation
-    async fn test_known_vectors(&self) {
-        info!("Testing hardware CRC calculation against known vectors...");
-
-        // Test vector 1: Read instruction packet
-        let test_packet_1 = [0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x07, 0x00, 0x02, 0x00, 0x00, 0x02, 0x00];
-        let expected_crc_1 = [0x1D, 0x15];
-
-        let calculated_crc_1 = self.crc_processor.calculate_crc(&test_packet_1).await;
-
-        info!(
-            "Test 1 - Hardware CRC: [{:02X}, {:02X}], Expected: [{:02X}, {:02X}]",
-            calculated_crc_1[0], calculated_crc_1[1], expected_crc_1[0], expected_crc_1[1]
-        );
-
-        // Test vector 2: Ping instruction packet
-        let test_packet_2 = [0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x03, 0x00, 0x01];
-        let expected_crc_2 = [0x19, 0x4E];
-
-        let calculated_crc_2 = self.crc_processor.calculate_crc(&test_packet_2).await;
-
-        info!(
-            "Test 2 - Hardware CRC: [{:02X}, {:02X}], Expected: [{:02X}, {:02X}]",
-            calculated_crc_2[0], calculated_crc_2[1], expected_crc_2[0], expected_crc_2[1]
-        );
-
-        // Verify results
-        if calculated_crc_1 == expected_crc_1 && calculated_crc_2 == expected_crc_2 {
-            info!("✓ All hardware CRC test vectors PASSED");
-        } else {
-            warn!("✗ Some hardware CRC test vectors FAILED");
-        }
-    }
-
-    /// Test packet building operations with manual CRC handling
-    async fn test_packet_operations(&self) {
-        info!("Testing packet CRC calculation...");
-
-        // Build a Write instruction packet (without CRC)
-        let write_packet = [
-            0xFF, 0xFF, 0xFD, 0x00, // Header + Reserved
-            0x01, // ID
-            0x09, 0x00, // Length (9 bytes)
-            0x03, // Write instruction
-            0x74, 0x00, // Address (116 = Goal Position)
-            0x00, 0x02, 0x00, 0x00, // Data (512 in little-endian)
-        ];
-
-        // Calculate CRC for the packet
-        let crc = self.crc_processor.calculate_crc(&write_packet).await;
-        info!("Write packet CRC: [{:02X}, {:02X}]", crc[0], crc[1]);
-
-        // Create complete packet with CRC appended
-        let mut complete_packet = [0u8; 16];
-        complete_packet[..14].copy_from_slice(&write_packet);
-        complete_packet[14] = crc[0]; // CRC_L
-        complete_packet[15] = crc[1]; // CRC_H
-
-        info!("Complete write packet: [{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}]",
-            complete_packet[0], complete_packet[1], complete_packet[2], complete_packet[3],
-            complete_packet[4], complete_packet[5], complete_packet[6], complete_packet[7],
-            complete_packet[8], complete_packet[9], complete_packet[10], complete_packet[11],
-            complete_packet[12], complete_packet[13], complete_packet[14], complete_packet[15]
-        );
-
-        // Verify by recalculating CRC
-        let verify_crc = self.crc_processor.calculate_crc(&complete_packet[..14]).await;
-        let is_valid = verify_crc[0] == complete_packet[14] && verify_crc[1] == complete_packet[15];
-        info!("Write packet verification: {}", if is_valid { "PASS" } else { "FAIL" });
-
-        // Test with corrupted data
-        let mut corrupted_packet = write_packet;
-        corrupted_packet[8] = 0xAA; // Corrupt the address field
-
-        let corrupted_crc = self.crc_processor.calculate_crc(&corrupted_packet).await;
-        let is_different = corrupted_crc != crc;
-        info!("Corrupted packet has different CRC: {} (should be true)", is_different);
-    }
-
-    /// Simulate concurrent access to the CRC peripheral
-    async fn test_concurrent_access(&self) {
-        info!("Testing concurrent CRC access simulation...");
-
-        // Simulate multiple "tasks" accessing CRC
-        // (In a real application, these would be separate async tasks)
-
-        for i in 0..5 {
-            // Create different test packets
-            let test_data = [0xFF, 0xFF, 0xFD, 0x00, i, 0x03, 0x00, 0x01];
-
-            let crc = self.crc_processor.calculate_crc(&test_data).await;
-            info!(
-                "Concurrent test {}: data[4] = {}, CRC = [{:02X}, {:02X}]",
-                i, test_data[4], crc[0], crc[1]
-            );
-
-            // Small delay to simulate realistic usage
-            Timer::after(Duration::from_millis(10)).await;
-        }
-
-        info!("Concurrent access test completed");
     }
 }

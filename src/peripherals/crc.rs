@@ -1,19 +1,17 @@
 //! Hardware CRC peripheral for Dynamixel 2.0 protocol.
 //!
 //! This module provides hardware CRC calculation using the STM32H753's CRC peripheral
-//! with DMA support for efficient Dynamixel packet CRC computation.
+//! for efficient Dynamixel packet CRC computation.
 
 use embassy_stm32::{
     crc::{Config, Crc, InputReverseConfig, PolySize},
-    peripherals::{CRC, DMA1_CH2},
+    peripherals::CRC,
     Peri,
 };
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
-/// Peripheral collection for CRC with DMA
+/// Peripheral collection for CRC
 pub struct CrcPeripherals<'d> {
     pub crc: Peri<'d, CRC>,
-    pub dma: Peri<'d, DMA1_CH2>, // DMA channel for CRC calculations
 }
 
 /// Macro to claim peripherals for CRC
@@ -22,15 +20,14 @@ macro_rules! claim_crc {
     ($peripherals:expr) => {{
         $crate::peripherals::crc::CrcPeripherals {
             crc: $peripherals.CRC.reborrow(),
-            dma: $peripherals.DMA1_CH2.reborrow(),
         }
     }};
 }
 
 /// Hardware CRC processor for Dynamixel 2.0 protocol packets
 ///
-/// This peripheral uses the STM32H753's hardware CRC peripheral with DMA
-/// to efficiently calculate CRC-16 (IBM/ANSI) as required by Dynamixel 2.0.
+/// This peripheral uses the STM32H753's hardware CRC peripheral to efficiently
+/// calculate CRC-16 (IBM/ANSI) as required by Dynamixel 2.0.
 ///
 /// The CRC calculation uses:
 /// - Polynomial: x^16 + x^15 + x^2 + 1 (0x8005)
@@ -38,15 +35,18 @@ macro_rules! claim_crc {
 /// - Input reflection: disabled
 /// - Output reflection: disabled
 ///
+/// # Performance
+///
+/// The STM32H753's hardware CRC peripheral processes data very efficiently,
+/// typically completing CRC calculations in just a few CPU cycles per byte.
+/// This is much faster than software CRC implementations and provides
+/// consistent performance regardless of data patterns.
+///
 /// # Thread Safety
 ///
-/// The CRC peripheral is wrapped in a mutex to ensure thread-safe access
-/// from multiple async tasks simultaneously.
+/// Since the CRC calculation is a synchronous atomic operation that completes
+/// without yielding, no mutex protection is needed when using a single executor.
 pub struct CrcProcessor<'d> {
-    inner: Mutex<CriticalSectionRawMutex, CrcProcessorInner<'d>>,
-}
-
-struct CrcProcessorInner<'d> {
     crc: Crc<'d>,
 }
 
@@ -54,7 +54,7 @@ impl<'d> CrcProcessor<'d> {
     /// Create a new hardware CRC processor for Dynamixel 2.0 protocol
     ///
     /// # Arguments
-    /// * `peripherals` - CrcPeripherals struct containing CRC and DMA peripherals
+    /// * `peripherals` - CrcPeripherals struct containing CRC peripheral
     ///
     /// # Returns
     /// Configured CRC processor ready for Dynamixel packet processing
@@ -70,9 +70,7 @@ impl<'d> CrcProcessor<'d> {
         .expect("Invalid CRC configuration");
 
         Self {
-            inner: Mutex::new(CrcProcessorInner {
-                crc: embassy_stm32::crc::Crc::new(peripherals.crc, config),
-            }),
+            crc: Crc::new(peripherals.crc, config),
         }
     }
 
@@ -91,17 +89,15 @@ impl<'d> CrcProcessor<'d> {
     /// ```rust,ignore
     /// // Calculate CRC for instruction packet
     /// let packet = [0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x07, 0x00, 0x02, 0x00, 0x00, 0x02, 0x00];
-    /// let crc = crc_processor.calculate_crc(&packet).await;
+    /// let crc = crc_processor.calculate_crc(&packet);
     /// // crc will be [0x1D, 0x15] for this example packet
     /// ```
-    pub async fn calculate_crc(&self, data: &[u8]) -> [u8; 2] {
-        let mut inner = self.inner.lock().await;
-
+    pub fn calculate_crc(&mut self, data: &[u8]) -> [u8; 2] {
         // Reset CRC to initial state
-        inner.crc.reset();
+        self.crc.reset();
 
-        // Use Embassy's blocking CRC calculation
-        let crc_result_32 = inner.crc.feed_bytes(data);
+        // Use Embassy's hardware CRC calculation
+        let crc_result_32 = self.crc.feed_bytes(data);
 
         // For 16-bit CRC, the result is in the lower 16 bits
         let crc_result = (crc_result_32 & 0xFFFF) as u16;

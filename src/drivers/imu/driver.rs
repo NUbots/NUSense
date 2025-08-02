@@ -397,8 +397,10 @@ impl<'d> Icm20689<'d> {
                                 }
                                 Err(e) => {
                                     defmt::warn!(
-                                        "IMU FIFO packet conversion error: expected 14 bytes, got {}, error: {:?}",
+                                        "IMU FIFO packet slice-to-array conversion failed: expected {} bytes, got {} bytes. Error type: {}. Error: {:?}",
+                                        PACKET_SIZE,
                                         packet.len(),
+                                        core::any::type_name::<_>(),
                                         e
                                     );
                                     continue;

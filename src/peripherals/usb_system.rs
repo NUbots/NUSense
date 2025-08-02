@@ -3,6 +3,7 @@
 //! Provides USB device initialization and management for the NUSense platform.
 
 use defmt::info;
+use embassy_futures::join::join;
 use embassy_stm32::{
     bind_interrupts, peripherals as stm32_peripherals,
     peripherals::{PA3, PA5, PB0, PB1, PB10, PB11, PB12, PB13, PB5, PC0, PC2, PC3, USB_OTG_HS},
@@ -10,6 +11,10 @@ use embassy_stm32::{
     Peri,
 };
 use embassy_usb::{Builder, UsbDevice};
+
+// Static allocation for USB buffers and ACM state
+static mut USB_BUFFERS: UsbBuffers = UsbBuffers::new();
+static mut ACM_STATE: super::AcmState = super::AcmState::new();
 
 /// Peripheral collection for USB system interface
 pub struct UsbPeripherals<'d> {
@@ -33,19 +38,19 @@ pub struct UsbPeripherals<'d> {
 macro_rules! claim_usb {
     ($peripherals:expr) => {{
         $crate::peripherals::usb_system::UsbPeripherals {
-            usb_otg_hs: $peripherals.USB_OTG_HS.reborrow(),
-            ulpi_clk: $peripherals.PA5.reborrow(), // USB_OTG_HS_ULPI_CK
-            ulpi_dir: $peripherals.PC2.reborrow(), // USB_OTG_HS_ULPI_DIR
-            ulpi_nxt: $peripherals.PC3.reborrow(), // USB_OTG_HS_ULPI_NXT
-            ulpi_stp: $peripherals.PC0.reborrow(), // USB_OTG_HS_ULPI_STP
-            ulpi_d0: $peripherals.PA3.reborrow(),  // USB_OTG_HS_ULPI_D0
-            ulpi_d1: $peripherals.PB0.reborrow(),  // USB_OTG_HS_ULPI_D1
-            ulpi_d2: $peripherals.PB1.reborrow(),  // USB_OTG_HS_ULPI_D2
-            ulpi_d3: $peripherals.PB10.reborrow(), // USB_OTG_HS_ULPI_D3
-            ulpi_d4: $peripherals.PB11.reborrow(), // USB_OTG_HS_ULPI_D4
-            ulpi_d5: $peripherals.PB12.reborrow(), // USB_OTG_HS_ULPI_D5
-            ulpi_d6: $peripherals.PB13.reborrow(), // USB_OTG_HS_ULPI_D6
-            ulpi_d7: $peripherals.PB5.reborrow(),  // USB_OTG_HS_ULPI_D7
+            usb_otg_hs: $peripherals.USB_OTG_HS,
+            ulpi_clk: $peripherals.PA5, // USB_OTG_HS_ULPI_CK
+            ulpi_dir: $peripherals.PC2, // USB_OTG_HS_ULPI_DIR
+            ulpi_nxt: $peripherals.PC3, // USB_OTG_HS_ULPI_NXT
+            ulpi_stp: $peripherals.PC0, // USB_OTG_HS_ULPI_STP
+            ulpi_d0: $peripherals.PA3,  // USB_OTG_HS_ULPI_D0
+            ulpi_d1: $peripherals.PB0,  // USB_OTG_HS_ULPI_D1
+            ulpi_d2: $peripherals.PB1,  // USB_OTG_HS_ULPI_D2
+            ulpi_d3: $peripherals.PB10, // USB_OTG_HS_ULPI_D3
+            ulpi_d4: $peripherals.PB11, // USB_OTG_HS_ULPI_D4
+            ulpi_d5: $peripherals.PB12, // USB_OTG_HS_ULPI_D5
+            ulpi_d6: $peripherals.PB13, // USB_OTG_HS_ULPI_D6
+            ulpi_d7: $peripherals.PB5,  // USB_OTG_HS_ULPI_D7
         }
     }};
 }
@@ -188,4 +193,33 @@ impl<'d> UsbSystem<'d> {
         let device = self.usb_device.as_mut().expect("Failed to build USB device");
         device.run().await;
     }
+}
+
+/// USB system task with integrated echo functionality
+#[embassy_executor::task]
+pub async fn usb_task(usb_peripherals: UsbPeripherals<'static>) -> ! {
+    let usb_buffers = unsafe {
+        let usb_buffers = &raw mut USB_BUFFERS;
+        usb_buffers.as_mut().unwrap()
+    };
+
+    let mut usb_system = UsbSystem::new(usb_peripherals, usb_buffers);
+
+    // Create ACM connection
+    let acm_connection = unsafe {
+        let acm_state = &raw mut ACM_STATE;
+        super::AcmConnection::new(usb_system.builder(), acm_state.as_mut().unwrap())
+    };
+
+    // Create echo app
+    let mut echo_app = crate::apps::EchoApp::new(acm_connection);
+
+    // Run both the USB device and echo app concurrently
+    let usb_device_task = usb_system.run();
+    let echo_task = echo_app.run();
+
+    join(usb_device_task, echo_task).await;
+
+    // This should never be reached since both tasks run forever
+    unreachable!()
 }

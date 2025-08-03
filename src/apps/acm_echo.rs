@@ -155,6 +155,16 @@ impl<'d> AcmEcho<'d> {
 }
 
 /// USB system task with integrated echo functionality
+///
+/// Embassy task that runs the USB CDC ACM echo application.
+///
+/// # Parameters
+/// - `acm`: The ACM connection to the USB host, used for packet-based communication.
+///
+/// # Behavior
+/// This task initializes the echo application and runs it indefinitely, echoing
+/// each received USB packet back to the host. It is intended to be spawned as a
+/// top-level asynchronous task in the Embassy executor and never returns.
 #[embassy_executor::task]
 pub async fn task(acm: AcmConnection<'static>) -> ! {
     // Run both the USB device and echo app concurrently

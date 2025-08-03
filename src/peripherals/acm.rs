@@ -5,36 +5,28 @@
 
 use defmt::info;
 use embassy_stm32::{peripherals::USB_OTG_HS, usb::Driver};
-use embassy_usb::{
-    class::cdc_acm::{CdcAcmClass, State},
-    driver::EndpointError,
-    Builder,
-};
+pub use embassy_usb::class::cdc_acm::State;
+use embassy_usb::{class::cdc_acm::CdcAcmClass, driver::EndpointError, Builder};
+use static_cell::StaticCell;
 
 // Import MAX_PACKET_SIZE from USB system
 use super::usb_system::MAX_PACKET_SIZE;
 
-/// Wrapper around Embassy's CDC ACM state.
-pub struct AcmState<'d> {
-    state: State<'d>,
+pub static ACM_STATE: StaticCell<State<'static>> = StaticCell::new();
+
+/// Peripheral collection for ACM interface
+pub struct AcmClaims<'d> {
+    pub acm_state: &'d mut State<'d>,
 }
 
-impl<'d> AcmState<'d> {
-    /// Create a new ACM state instance.
-    pub const fn new() -> Self {
-        Self { state: State::new() }
-    }
-
-    /// Get mutable access to the internal state for ACM connection creation.
-    pub fn state_mut(&mut self) -> &mut State<'d> {
-        &mut self.state
-    }
-}
-
-impl<'d> Default for AcmState<'d> {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Macro to claim peripherals for AcmConnection
+#[macro_export]
+macro_rules! claim_acm {
+    ($peripherals:expr) => {{
+        $crate::peripherals::acm::AcmClaims {
+            acm_state: $crate::peripherals::acm::ACM_STATE.init(embassy_usb::class::cdc_acm::State::new()),
+        }
+    }};
 }
 
 /// Error indicating USB connection was disconnected.
@@ -77,11 +69,11 @@ impl<'d> AcmConnection<'d> {
     /// # Arguments
     ///
     /// * `builder` - USB device builder
-    /// * `acm_state` - ACM state storage
-    pub fn new(builder: &mut Builder<'d, Driver<'d, USB_OTG_HS>>, acm_state: &'d mut AcmState<'d>) -> Self {
+    /// * `claims` - AcmClaims struct containing ACM state
+    pub fn new(builder: &mut Builder<'d, Driver<'d, USB_OTG_HS>>, claims: AcmClaims<'d>) -> Self {
         info!("CDC ACM connection initialized");
         Self {
-            class: CdcAcmClass::new(builder, acm_state.state_mut(), MAX_PACKET_SIZE),
+            class: CdcAcmClass::new(builder, claims.acm_state, MAX_PACKET_SIZE),
         }
     }
 

@@ -144,7 +144,11 @@ impl<'d> Icm20689<'d> {
     pub fn new(spi: ImuSpi<'d>, imu_peripherals: ImuPeripherals<'d>) -> Self {
         Self {
             spi,
-            interrupt: ExtiInput::new(imu_peripherals.interrupt_pin, imu_peripherals.interrupt_line, Pull::None),
+            interrupt: ExtiInput::new(
+                imu_peripherals.interrupt_pin,
+                imu_peripherals.interrupt_line,
+                Pull::None,
+            ),
             config: ImuConfig::default(),
         }
     }
@@ -443,11 +447,14 @@ impl<'d> Icm20689<'d> {
 }
 
 /// IMU driver task with error recovery - creates IMU driver from peripherals
-#[embassy_executor::task] 
-pub async fn imu_task(spi_peripherals: crate::peripherals::spi::SpiPeripherals<'static>, imu_peripherals: ImuPeripherals<'static>) -> ! {
+#[embassy_executor::task]
+pub async fn task(
+    spi_peripherals: crate::peripherals::spi::SpiClaims<'static>,
+    imu_peripherals: ImuPeripherals<'static>,
+) -> ! {
     let spi = crate::peripherals::spi::ImuSpi::new(spi_peripherals);
     let mut imu = Icm20689::new(spi, imu_peripherals);
-    
+
     loop {
         match imu.run().await {
             Ok(()) => {

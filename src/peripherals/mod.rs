@@ -17,5 +17,4 @@ pub mod system;
 pub mod usb_system;
 
 // Re-export commonly used types for convenience
-pub use acm::{AcmConnection, AcmState, Disconnected};
 pub use system::init_system;

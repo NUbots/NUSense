@@ -3,7 +3,6 @@
 //! Provides USB device initialization and management for the NUSense platform.
 
 use defmt::info;
-use embassy_futures::join::join;
 use embassy_stm32::{
     bind_interrupts, peripherals as stm32_peripherals,
     peripherals::{PA3, PA5, PB0, PB1, PB10, PB11, PB12, PB13, PB5, PC0, PC2, PC3, USB_OTG_HS},
@@ -11,13 +10,10 @@ use embassy_stm32::{
     Peri,
 };
 use embassy_usb::{Builder, UsbDevice};
-
-// Static allocation for USB buffers and ACM state
-static mut USB_BUFFERS: UsbBuffers = UsbBuffers::new();
-static mut ACM_STATE: super::AcmState = super::AcmState::new();
+use static_cell::ConstStaticCell;
 
 /// Peripheral collection for USB system interface
-pub struct UsbPeripherals<'d> {
+pub struct UsbClaims<'d> {
     pub usb_otg_hs: Peri<'d, USB_OTG_HS>,
     pub ulpi_clk: Peri<'d, PA5>, // USB_OTG_HS_ULPI_CK
     pub ulpi_dir: Peri<'d, PC2>, // USB_OTG_HS_ULPI_DIR
@@ -31,13 +27,14 @@ pub struct UsbPeripherals<'d> {
     pub ulpi_d5: Peri<'d, PB12>, // USB_OTG_HS_ULPI_D5
     pub ulpi_d6: Peri<'d, PB13>, // USB_OTG_HS_ULPI_D6
     pub ulpi_d7: Peri<'d, PB5>,  // USB_OTG_HS_ULPI_D7
+    pub usb_buffers: &'d mut UsbBuffers,
 }
 
 /// Macro to claim peripherals for UsbSystem
 #[macro_export]
 macro_rules! claim_usb {
     ($peripherals:expr) => {{
-        $crate::peripherals::usb_system::UsbPeripherals {
+        $crate::peripherals::usb_system::UsbClaims {
             usb_otg_hs: $peripherals.USB_OTG_HS,
             ulpi_clk: $peripherals.PA5, // USB_OTG_HS_ULPI_CK
             ulpi_dir: $peripherals.PC2, // USB_OTG_HS_ULPI_DIR
@@ -51,6 +48,7 @@ macro_rules! claim_usb {
             ulpi_d5: $peripherals.PB12, // USB_OTG_HS_ULPI_D5
             ulpi_d6: $peripherals.PB13, // USB_OTG_HS_ULPI_D6
             ulpi_d7: $peripherals.PB5,  // USB_OTG_HS_ULPI_D7
+            usb_buffers: $crate::peripherals::usb_system::USB_BUFFERS.take(),
         }
     }};
 }
@@ -79,6 +77,7 @@ pub struct UsbBuffers {
     /// USB control transfer buffer
     pub control_buf: [u8; 64],
 }
+pub static USB_BUFFERS: ConstStaticCell<UsbBuffers> = ConstStaticCell::new(UsbBuffers::new());
 
 impl UsbBuffers {
     /// Create a new set of USB buffers.
@@ -112,9 +111,8 @@ impl<'d> UsbSystem<'d> {
     /// Create a new USB system
     ///
     /// # Arguments
-    /// * `peripherals` - UsbPeripherals struct containing all required peripherals
-    /// * `usb_buffers` - Pre-allocated buffers for USB operations
-    pub fn new(peripherals: UsbPeripherals<'d>, usb_buffers: &'d mut UsbBuffers) -> Self {
+    /// * `claims` - UsbClaims struct containing all required peripherals and buffers
+    pub fn new(claims: UsbClaims<'d>) -> Self {
         info!("Initializing USB system...");
 
         // Configure USB device descriptor
@@ -128,21 +126,21 @@ impl<'d> UsbSystem<'d> {
         usb_config.vbus_detection = true;
 
         let driver = Driver::new_hs_ulpi(
-            peripherals.usb_otg_hs,
+            claims.usb_otg_hs,
             UsbInterrupts,
-            peripherals.ulpi_clk,
-            peripherals.ulpi_dir,
-            peripherals.ulpi_nxt,
-            peripherals.ulpi_stp,
-            peripherals.ulpi_d0,
-            peripherals.ulpi_d1,
-            peripherals.ulpi_d2,
-            peripherals.ulpi_d3,
-            peripherals.ulpi_d4,
-            peripherals.ulpi_d5,
-            peripherals.ulpi_d6,
-            peripherals.ulpi_d7,
-            &mut usb_buffers.ep_out_buffer,
+            claims.ulpi_clk,
+            claims.ulpi_dir,
+            claims.ulpi_nxt,
+            claims.ulpi_stp,
+            claims.ulpi_d0,
+            claims.ulpi_d1,
+            claims.ulpi_d2,
+            claims.ulpi_d3,
+            claims.ulpi_d4,
+            claims.ulpi_d5,
+            claims.ulpi_d6,
+            claims.ulpi_d7,
+            &mut claims.usb_buffers.ep_out_buffer,
             usb_config,
         );
 
@@ -150,10 +148,10 @@ impl<'d> UsbSystem<'d> {
         let builder = Builder::new(
             driver,
             config,
-            &mut usb_buffers.config_descriptor,
-            &mut usb_buffers.bos_descriptor,
+            &mut claims.usb_buffers.config_descriptor,
+            &mut claims.usb_buffers.bos_descriptor,
             &mut [], // No Microsoft OS descriptors
-            &mut usb_buffers.control_buf,
+            &mut claims.usb_buffers.control_buf,
         );
 
         info!("USB system initialized successfully");
@@ -197,29 +195,7 @@ impl<'d> UsbSystem<'d> {
 
 /// USB system task with integrated echo functionality
 #[embassy_executor::task]
-pub async fn usb_task(usb_peripherals: UsbPeripherals<'static>) -> ! {
-    let usb_buffers = unsafe {
-        let usb_buffers = &raw mut USB_BUFFERS;
-        usb_buffers.as_mut().unwrap()
-    };
-
-    let mut usb_system = UsbSystem::new(usb_peripherals, usb_buffers);
-
-    // Create ACM connection
-    let acm_connection = unsafe {
-        let acm_state = &raw mut ACM_STATE;
-        super::AcmConnection::new(usb_system.builder(), acm_state.as_mut().unwrap())
-    };
-
-    // Create echo app
-    let mut echo_app = crate::apps::EchoApp::new(acm_connection);
-
+pub async fn task(mut usb_system: UsbSystem<'static>) -> ! {
     // Run both the USB device and echo app concurrently
-    let usb_device_task = usb_system.run();
-    let echo_task = echo_app.run();
-
-    join(usb_device_task, echo_task).await;
-
-    // This should never be reached since both tasks run forever
-    unreachable!()
+    usb_system.run().await;
 }

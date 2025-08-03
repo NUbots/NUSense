@@ -13,9 +13,8 @@ mod peripherals;
 
 use defmt::info;
 use embassy_executor::Spawner;
-use peripherals::init_system;
+use peripherals::{acm, init_system, usb_system};
 
-// Import panic handler and defmt RTT for debugging
 #[cfg(not(feature = "debug"))]
 use panic_halt as _;
 #[cfg(feature = "debug")]
@@ -32,20 +31,22 @@ async fn main(spawner: Spawner) {
     // Initialize STM32 peripherals with optimized clock configuration
     let peripherals = init_system();
 
-    info!("System initialized, spawning individual tasks...");
+    let mut usb_system = usb_system::UsbSystem::new(claim_usb!(peripherals));
+    let acm_connection = acm::AcmConnection::new(usb_system.builder(), claim_acm!(peripherals));
 
-    // Spawn all tasks directly with peripherals
+    // USB System task manages the usb events
+    spawner.spawn(usb_system::task(usb_system)).unwrap();
+
+    // Echo application for testing USB CDC ACM communication
+    #[cfg(feature = "debug-acm")]
+    spawner.spawn(apps::acm_echo::task(acm_connection)).unwrap();
+
+    #[cfg(feature = "debug-crc")]
+    spawner.spawn(apps::crc_test::task(claim_crc!(peripherals))).unwrap();
+
+    // IMU task reads from the IMU sensor
     spawner
-        .spawn(peripherals::usb_system::usb_task(claim_usb!(peripherals)))
-        .unwrap();
-    spawner
-        .spawn(drivers::imu::imu_task(
-            claim_imu_spi!(peripherals),
-            claim_imu!(peripherals),
-        ))
-        .unwrap();
-    spawner
-        .spawn(apps::crc_demo::crc_demo_task(claim_crc!(peripherals)))
+        .spawn(drivers::imu::task(claim_imu_spi!(peripherals), claim_imu!(peripherals)))
         .unwrap();
 
     // Main task can do system-level monitoring

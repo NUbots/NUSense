@@ -1,2 +1,2 @@
 mod driver;
-pub use driver::Icm20689;
+pub use driver::{task, ImuPeripherals};

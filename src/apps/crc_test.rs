@@ -8,11 +8,11 @@ use defmt::{info, warn};
 use embassy_time::{Duration, Instant, Timer};
 
 /// Demonstration application for CRC peripheral usage
-pub struct CrcDemoApp<'d> {
+pub struct CrcTest<'d> {
     crc_processor: CrcProcessor<'d>,
 }
 
-impl<'d> CrcDemoApp<'d> {
+impl<'d> CrcTest<'d> {
     /// Create a new CRC demonstration application
     ///
     /// # Arguments
@@ -217,4 +217,20 @@ impl<'d> CrcDemoApp<'d> {
             self.run_crc_test("Dynamic Buffer Test", &test_buffer, &expected_crc);
         }
     }
+}
+
+/// Embassy task for running the CRC demonstration application.
+///
+/// # Parameters
+/// - `crc_peripherals`: The hardware CRC peripheral resources required to initialize the CRC processor.
+///
+/// This task creates a CRC demonstration instance and runs it indefinitely,
+/// comparing hardware and software CRC calculations using the provided peripherals.
+#[embassy_executor::task]
+pub async fn task(crc_peripherals: crate::peripherals::crc::CrcPeripherals<'static>) -> ! {
+    let crc_processor = crate::peripherals::crc::CrcProcessor::new(crc_peripherals);
+    let mut crc_demo = CrcTest::new(crc_processor);
+
+    // Run the CRC demonstration indefinitely
+    crc_demo.run().await;
 }

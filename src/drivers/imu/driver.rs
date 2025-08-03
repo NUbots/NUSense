@@ -17,6 +17,12 @@ use embassy_stm32::{
 };
 use embassy_time::{Duration, Timer};
 
+/// Peripheral collection for IMU interface
+pub struct ImuPeripherals<'d> {
+    pub interrupt_pin: Peri<'d, PE10>,
+    pub interrupt_line: Peri<'d, EXTI10>,
+}
+
 /// Register addresses for the ICM-20689
 ///
 /// These correspond to the register map in the ICM-20689 datasheet.
@@ -65,7 +71,10 @@ pub enum GyroRange {
 #[macro_export]
 macro_rules! claim_imu {
     ($peripherals:expr) => {{
-        ($peripherals.PE10.reborrow(), $peripherals.EXTI10.reborrow())
+        drivers::imu::ImuPeripherals {
+            interrupt_pin: $peripherals.PE10,
+            interrupt_line: $peripherals.EXTI10,
+        }
     }};
 }
 
@@ -131,13 +140,15 @@ impl<'d> Icm20689<'d> {
     ///
     /// # Arguments
     /// * `spi` - Configured SPI peripheral for communication (includes chip select)
-    /// * `interrupt_peripherals` - Tuple of (PE10, EXTI10) for interrupt handling
-    pub fn new(spi: ImuSpi<'d>, interrupt_peripherals: (Peri<'d, PE10>, Peri<'d, EXTI10>)) -> Self {
-        let (interrupt_pin, interrupt_line) = interrupt_peripherals;
-
+    /// * `imu_peripherals` - IMU peripheral collection for interrupt handling
+    pub fn new(spi: ImuSpi<'d>, imu_peripherals: ImuPeripherals<'d>) -> Self {
         Self {
             spi,
-            interrupt: ExtiInput::new(interrupt_pin, interrupt_line, Pull::None),
+            interrupt: ExtiInput::new(
+                imu_peripherals.interrupt_pin,
+                imu_peripherals.interrupt_line,
+                Pull::None,
+            ),
             config: ImuConfig::default(),
         }
     }
@@ -430,6 +441,43 @@ impl<'d> Icm20689<'d> {
 
                 sample_count = 0;
                 last_log_time = now;
+            }
+        }
+    }
+}
+
+/// Embassy task for running the ICM-20689 IMU driver with error recovery.
+///
+/// This task initializes the IMU driver using the provided SPI and IMU peripherals,
+/// and continuously runs the driver in a loop. If an error occurs during operation,
+/// the task logs the error and automatically restarts the driver after a delay,
+/// ensuring robust operation in the presence of transient faults.
+///
+/// # Parameters
+/// - `spi_peripherals`: SPI peripheral claims required for IMU communication.
+/// - `imu_peripherals`: IMU interrupt pin and line peripherals.
+///
+/// # Behavior
+/// - Runs the IMU driver in an infinite loop.
+/// - On error, logs the error and restarts the driver after a 5-second delay.
+/// - Intended to be spawned as an Embassy task for continuous IMU data acquisition.
+#[embassy_executor::task]
+pub async fn task(
+    spi_peripherals: crate::peripherals::spi::SpiClaims<'static>,
+    imu_peripherals: ImuPeripherals<'static>,
+) -> ! {
+    let spi = crate::peripherals::spi::ImuSpi::new(spi_peripherals);
+    let mut imu = Icm20689::new(spi, imu_peripherals);
+
+    loop {
+        match imu.run().await {
+            Ok(()) => {
+                // This should never happen as run() is supposed to loop forever
+                defmt::info!("IMU task unexpectedly returned Ok(())");
+            }
+            Err(e) => {
+                defmt::info!("IMU error: {:?}, restarting in 5 seconds...", e);
+                embassy_time::Timer::after(embassy_time::Duration::from_secs(5)).await;
             }
         }
     }

@@ -13,7 +13,7 @@ use embassy_stm32::{
 };
 
 /// Peripheral collection for IMU SPI interface
-pub struct SpiPeripherals<'d> {
+pub struct SpiClaims<'d> {
     pub spi4: Peri<'d, SPI4>,
     pub cs: Peri<'d, PE11>,         // CS
     pub sck: Peri<'d, PE12>,        // SCK
@@ -27,14 +27,14 @@ pub struct SpiPeripherals<'d> {
 #[macro_export]
 macro_rules! claim_imu_spi {
     ($peripherals:expr) => {{
-        $crate::peripherals::spi::SpiPeripherals {
-            spi4: $peripherals.SPI4.reborrow(),
-            cs: $peripherals.PE11.reborrow(),         // CS
-            sck: $peripherals.PE12.reborrow(),        // SCK
-            miso: $peripherals.PE13.reborrow(),       // MISO
-            mosi: $peripherals.PE14.reborrow(),       // MOSI
-            dma_tx: $peripherals.DMA1_CH0.reborrow(), // TX DMA
-            dma_rx: $peripherals.DMA1_CH1.reborrow(), // RX DMA
+        $crate::peripherals::spi::SpiClaims {
+            spi4: $peripherals.SPI4,
+            cs: $peripherals.PE11,         // CS
+            sck: $peripherals.PE12,        // SCK
+            miso: $peripherals.PE13,       // MISO
+            mosi: $peripherals.PE14,       // MOSI
+            dma_tx: $peripherals.DMA1_CH0, // TX DMA
+            dma_rx: $peripherals.DMA1_CH1, // RX DMA
         }
     }};
 }
@@ -55,11 +55,11 @@ impl<'d> ImuSpi<'d> {
     /// Create a new IMU SPI configuration with software chip select
     ///
     /// # Arguments
-    /// * `peripherals` - SpiPeripherals struct containing all required peripherals
+    /// * `peripherals` - SpiClaims struct containing all required peripherals
     ///
     /// # Returns
     /// Configured SPI instance with software chip select control
-    pub fn new(peripherals: SpiPeripherals<'d>) -> Self {
+    pub fn new(claims: SpiClaims<'d>) -> Self {
         // Configure SPI for ICM-20689 to match CubeMX configuration
         let mut config = SpiConfig::default();
         config.mode = Mode {
@@ -68,15 +68,15 @@ impl<'d> ImuSpi<'d> {
         };
         config.frequency = Hertz(8_000_000);
 
-        let cs_pin = Output::new(peripherals.cs, Level::High, Speed::VeryHigh);
+        let cs_pin = Output::new(claims.cs, Level::High, Speed::VeryHigh);
 
         let spi = Spi::new(
-            peripherals.spi4,
-            peripherals.sck,
-            peripherals.mosi,
-            peripherals.miso,
-            peripherals.dma_tx,
-            peripherals.dma_rx,
+            claims.spi4,
+            claims.sck,
+            claims.mosi,
+            claims.miso,
+            claims.dma_tx,
+            claims.dma_rx,
             config,
         );
 

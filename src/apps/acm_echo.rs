@@ -11,8 +11,8 @@
 //! - System status and diagnostics reporting
 //! - Configuration and calibration interfaces
 
+use crate::peripherals::acm::{AcmConnection, Disconnected};
 use crate::peripherals::usb_system::MAX_PACKET_SIZE;
-use crate::peripherals::{AcmConnection, Disconnected};
 use defmt::{info, warn};
 use embassy_time::Timer;
 
@@ -46,14 +46,14 @@ const RECONNECT_DELAY_MS: u64 = 100;
 /// # Example Usage
 ///
 /// ```rust,ignore
-/// let mut echo_app = EchoApp::new(acm_connection);
+/// let mut echo_app = AcmEcho::new(acm_connection);
 /// echo_app.run().await; // Runs forever
 /// ```
-pub struct EchoApp<'d> {
+pub struct AcmEcho<'d> {
     acm: AcmConnection<'d>,
 }
 
-impl<'d> EchoApp<'d> {
+impl<'d> AcmEcho<'d> {
     /// Create a new echo application with the specified ACM connection.
     ///
     /// # Arguments
@@ -62,7 +62,7 @@ impl<'d> EchoApp<'d> {
     ///
     /// # Returns
     ///
-    /// A new [`EchoApp`] instance ready to run.
+    /// A new [`AcmEcho`] instance ready to run.
     pub const fn new(acm: AcmConnection<'d>) -> Self {
         Self { acm }
     }
@@ -152,4 +152,24 @@ impl<'d> EchoApp<'d> {
             info!("Echoed {} bytes packet back to host", bytes_received);
         }
     }
+}
+
+/// USB system task with integrated echo functionality
+///
+/// Embassy task that runs the USB CDC ACM echo application.
+///
+/// # Parameters
+/// - `acm`: The ACM connection to the USB host, used for packet-based communication.
+///
+/// # Behavior
+/// This task initializes the echo application and runs it indefinitely, echoing
+/// each received USB packet back to the host. It is intended to be spawned as a
+/// top-level asynchronous task in the Embassy executor and never returns.
+#[embassy_executor::task]
+pub async fn task(acm: AcmConnection<'static>) -> ! {
+    // Run both the USB device and echo app concurrently
+    let mut echo_app = AcmEcho::new(acm);
+
+    // Run the echo application indefinitely
+    echo_app.run().await;
 }

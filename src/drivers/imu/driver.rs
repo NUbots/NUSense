@@ -446,7 +446,21 @@ impl<'d> Icm20689<'d> {
     }
 }
 
-/// IMU driver task with error recovery - creates IMU driver from peripherals
+/// Embassy task for running the ICM-20689 IMU driver with error recovery.
+///
+/// This task initializes the IMU driver using the provided SPI and IMU peripherals,
+/// and continuously runs the driver in a loop. If an error occurs during operation,
+/// the task logs the error and automatically restarts the driver after a delay,
+/// ensuring robust operation in the presence of transient faults.
+///
+/// # Parameters
+/// - `spi_peripherals`: SPI peripheral claims required for IMU communication.
+/// - `imu_peripherals`: IMU interrupt pin and line peripherals.
+///
+/// # Behavior
+/// - Runs the IMU driver in an infinite loop.
+/// - On error, logs the error and restarts the driver after a 5-second delay.
+/// - Intended to be spawned as an Embassy task for continuous IMU data acquisition.
 #[embassy_executor::task]
 pub async fn task(
     spi_peripherals: crate::peripherals::spi::SpiClaims<'static>,

@@ -193,7 +193,15 @@ impl<'d> UsbSystem<'d> {
     }
 }
 
-/// USB system task with integrated echo functionality
+/// Embassy task for running the USB system.
+///
+/// This task takes ownership of a `UsbSystem` instance and runs the USB device task indefinitely.
+/// 
+/// # Parameters
+/// - `usb_system`: The USB system abstraction to be managed and run.
+///
+/// # Behavior
+/// Runs the USB device event loop and does not return.
 #[embassy_executor::task]
 pub async fn task(mut usb_system: UsbSystem<'static>) -> ! {
     // Run both the USB device and echo app concurrently

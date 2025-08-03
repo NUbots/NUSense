@@ -196,7 +196,7 @@ impl<'d> UsbSystem<'d> {
 /// Embassy task for running the USB system.
 ///
 /// This task takes ownership of a `UsbSystem` instance and runs the USB device task indefinitely.
-/// 
+///
 /// # Parameters
 /// - `usb_system`: The USB system abstraction to be managed and run.
 ///

@@ -18,9 +18,7 @@ pub struct CrcPeripherals<'d> {
 #[macro_export]
 macro_rules! claim_crc {
     ($peripherals:expr) => {{
-        $crate::peripherals::crc::CrcPeripherals {
-            crc: $peripherals.CRC,
-        }
+        $crate::peripherals::crc::CrcPeripherals { crc: $peripherals.CRC }
     }};
 }
 

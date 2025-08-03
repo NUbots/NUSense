@@ -219,7 +219,13 @@ impl<'d> CrcTest<'d> {
     }
 }
 
-/// CRC demo application task - creates CRC demo from peripherals
+/// Embassy task for running the CRC demonstration application.
+///
+/// # Parameters
+/// - `crc_peripherals`: The hardware CRC peripheral resources required to initialize the CRC processor.
+///
+/// This task creates a CRC demonstration instance and runs it indefinitely,
+/// comparing hardware and software CRC calculations using the provided peripherals.
 #[embassy_executor::task]
 pub async fn task(crc_peripherals: crate::peripherals::crc::CrcPeripherals<'static>) -> ! {
     let crc_processor = crate::peripherals::crc::CrcProcessor::new(crc_peripherals);
